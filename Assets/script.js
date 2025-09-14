@@ -500,7 +500,7 @@ async function sendMessage() {
     }
     const uSnapPre = await getDoc(doc(db, 'users', state.userId));
     if (uSnapPre.exists() && uSnapPre.data().blocked === true) {
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This user has been blocked by admin.', sender: 'bot', createdAt: new Date() });
+      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Yo lil ass has been blocked by chaka.', sender: 'bot', createdAt: new Date() });
       return;
     }
     
