@@ -121,7 +121,7 @@ const applyConfigToUI = () => {
 document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
   DOMElements.fileUploadWrapper.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
-DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ chaka is Under maintenance. Don't bother! ' : '';
+DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ chaka is Under maintenance. Don't bother' : '';
   DOMElements.sendBtn.disabled = false;
 };
 // --- CORE LOGIC (UNCHANGED) ---
