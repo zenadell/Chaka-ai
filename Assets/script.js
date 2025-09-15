@@ -121,7 +121,7 @@ const applyConfigToUI = () => {
 document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
   DOMElements.fileUploadWrapper.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
-DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
+DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Under maintenance. Don't bother!' : '';
   DOMElements.sendBtn.disabled = false;
 };
 // --- CORE LOGIC (UNCHANGED) ---
@@ -346,12 +346,27 @@ function subscribeMessages() {
       }
       const el = document.createElement('div');
       el.className = `message ${msg.sender}`;
+
       
       const content = document.createElement('div');
-      content.className = 'message-content';
-      content.innerHTML = (typeof marked !== 'undefined') ? marked.parse(msg.text || '', { gfm: true, breaks: true }) : (msg.text || '');
-      el.appendChild(content);
+content.className = 'message-content';
 
+// ✅ Format text like ChatGPT: Markdown, paragraphs, code highlighting
+if (typeof marked !== 'undefined') {
+  // Convert Markdown → HTML with GFM + line breaks
+  const rawHTML = marked.parse(msg.text || '', { gfm: true, breaks: true });
+  content.innerHTML = rawHTML;
+
+  // Highlight code blocks (same as ChatGPT)
+  content.querySelectorAll('pre code').forEach(block => {
+    try { hljs.highlightElement(block); } catch (e) {}
+  });
+} else {
+  content.textContent = msg.text || '';
+}
+el.appendChild(content);
+
+      
       // ✅ MODIFICATION: Add copy button to bot messages
       if (msg.sender === 'bot') {
         const copyBtn = document.createElement('button');
