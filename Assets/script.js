@@ -510,12 +510,12 @@ async function sendMessage() {
   try {
     await loadConfigLive();
     if (!botConfig.active) {
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This bot has been deactivated by admin.', sender: 'bot', createdAt: new Date() });
+      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother bitch!.', sender: 'bot', createdAt: new Date() });
       return;
     }
     const uSnapPre = await getDoc(doc(db, 'users', state.userId));
     if (uSnapPre.exists() && uSnapPre.data().blocked === true) {
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This user has been blocked by admin.', sender: 'bot', createdAt: new Date() });
+      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ yo lil ass have been blocked by me!. contact my creator if you think this was a mistake!.', sender: 'bot', createdAt: new Date() });
       return;
     }
     
