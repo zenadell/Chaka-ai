@@ -433,3 +433,102 @@
     #composer { left: 0.5rem; right: 0.5rem; bottom: 0; padding: 0; }
     #chat-messages { padding-left: 0.75rem; padding-right: 0.75rem; }
     }
+
+
+/* =============================
+   ChatGPT-Style Message Content
+   ============================= */
+.message-content {
+  font-family: 'Manrope', system-ui, sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-primary, #eaeaea);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-width: 100%;
+}
+
+/* Paragraphs */
+.message-content p {
+  margin: 0 0 1em 0; /* spacing between paragraphs */
+}
+
+/* Bold text */
+.message-content strong,
+.message-content b {
+  font-weight: 600;
+}
+
+/* Inline code */
+.message-content code {
+  background: rgba(240, 246, 252, 0.15);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Code blocks */
+.message-content pre {
+  background: #0d1117;
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.message-content pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.9em;
+  color: #f0f6fc;
+}
+
+/* Lists */
+.message-content ul,
+.message-content ol {
+  margin: 0 0 1em 1.5em;
+  padding: 0;
+}
+
+.message-content li {
+  margin: 0.3em 0;
+}
+
+/* Blockquotes */
+.message-content blockquote {
+  border-left: 3px solid #4f46e5;
+  padding-left: 1em;
+  margin: 0 0 1em 0;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Links */
+.message-content a {
+  color: #4f46e5;
+  text-decoration: underline;
+}
+
+.message-content a:hover {
+  color: #6366f1;
+}
+
+/* Tables */
+.message-content table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid #2d2d2d;
+  padding: 0.5em;
+  text-align: left;
+}
+
+.message-content th {
+  background: #1f2937;
+  font-weight: 600;
+}
