@@ -121,7 +121,7 @@ const applyConfigToUI = () => {
 document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
   DOMElements.fileUploadWrapper.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
-DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Under maintenance. Don't bother!' : '';
+DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
   DOMElements.sendBtn.disabled = false;
 };
 // --- CORE LOGIC (UNCHANGED) ---
@@ -346,7 +346,6 @@ function subscribeMessages() {
       }
       const el = document.createElement('div');
       el.className = `message ${msg.sender}`;
-
       
       const content = document.createElement('div');
 content.className = 'message-content';
@@ -364,9 +363,10 @@ if (typeof marked !== 'undefined') {
 } else {
   content.textContent = msg.text || '';
 }
+
 el.appendChild(content);
 
-      
+
       // ✅ MODIFICATION: Add copy button to bot messages
       if (msg.sender === 'bot') {
         const copyBtn = document.createElement('button');
@@ -515,7 +515,7 @@ async function sendMessage() {
     }
     const uSnapPre = await getDoc(doc(db, 'users', state.userId));
     if (uSnapPre.exists() && uSnapPre.data().blocked === true) {
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Yo lil ass has been blocked by chaka.', sender: 'bot', createdAt: new Date() });
+      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This user has been blocked by admin.', sender: 'bot', createdAt: new Date() });
       return;
     }
     
