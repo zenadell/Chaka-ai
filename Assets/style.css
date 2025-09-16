@@ -432,16 +432,18 @@
     #chat-container { border-radius: 0; padding-bottom: 0.5rem; }
     #composer { left: 0.5rem; right: 0.5rem; bottom: 0; padding: 0; }
     #chat-messages { padding-left: 0.75rem; padding-right: 0.75rem; }
-    }
-
-
-/* =============================
+  }
+  
+  
+  
+  
+  /* =============================
    ChatGPT-Style Message Content
    ============================= */
 .message-content {
   font-family: 'Manrope', system-ui, sans-serif;
   font-size: 0.95rem;
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--text-primary, #eaeaea);
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -451,6 +453,7 @@
 /* Paragraphs */
 .message-content p {
   margin: 0 0 1em 0; /* spacing between paragraphs */
+  line-height: 1.65;
 }
 
 /* Bold text */
@@ -495,6 +498,13 @@
   margin: 0.3em 0;
 }
 
+/* Nested lists look cleaner */
+.message-content li ul,
+.message-content li ol {
+  margin-left: 1.2em;
+  margin-top: 0.3em;
+}
+
 /* Blockquotes */
 .message-content blockquote {
   border-left: 3px solid #4f46e5;
@@ -532,3 +542,53 @@
   background: #1f2937;
   font-weight: 600;
 }
+
+/* =============================
+   Enhanced ChatGPT Polish
+   ============================= */
+
+/* More breathing space after headers */
+.message-content h1,
+.message-content h2,
+.message-content h3 {
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Subtle smaller headers */
+.message-content h3 {
+  font-size: 1rem;
+  color: #d1d5db;
+}
+
+/* Indent first paragraph after a heading */
+.message-content h1 + p,
+.message-content h2 + p,
+.message-content h3 + p {
+  margin-top: 0.3em;
+  margin-left: 1.2em; /* tab-like indent */
+}
+
+/* Lists polish */
+.message-content ul,
+.message-content ol {
+  margin-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+.message-content li {
+  margin-bottom: 0.4em;
+}
+
+/* Smooth line breaks in multi-paragraph answers */
+.message-content br {
+  content: "";
+  display: block;
+  margin: 0.5em 0;
+}
+
+
+  
+    
