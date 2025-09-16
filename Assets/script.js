@@ -121,7 +121,7 @@ const applyConfigToUI = () => {
 document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
   DOMElements.fileUploadWrapper.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
-DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ chaka is Under maintenance. Do not bother!' : '';
+DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
   DOMElements.sendBtn.disabled = false;
 };
 // --- CORE LOGIC (UNCHANGED) ---
@@ -353,7 +353,23 @@ content.className = 'message-content';
 // ✅ Format text like ChatGPT: Markdown, paragraphs, code highlighting
 if (typeof marked !== 'undefined') {
   // Convert Markdown → HTML with GFM + line breaks
-  const rawHTML = marked.parse(msg.text || '', { gfm: true, breaks: true });
+  // ✅ Configure Marked.js like ChatGPT
+marked.setOptions({
+  gfm: true,            // GitHub-flavored Markdown
+  breaks: true,         // Convert line breaks to <br>
+  headerIds: false,     // No random IDs on headers
+  mangle: false         // Prevents mangling of email/links
+});
+
+// ✅ Render the message text
+const rawHTML = marked.parse(msg.text || '');
+content.innerHTML = rawHTML;
+
+// ✅ Highlight code blocks (ChatGPT style)
+content.querySelectorAll('pre code').forEach(block => {
+  try { hljs.highlightElement(block); } catch (e) {}
+});
+
   content.innerHTML = rawHTML;
 
   // Highlight code blocks (same as ChatGPT)
@@ -510,12 +526,12 @@ async function sendMessage() {
   try {
     await loadConfigLive();
     if (!botConfig.active) {
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother bitch!.', sender: 'bot', createdAt: new Date() });
+      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother bitch.', sender: 'bot', createdAt: new Date() });
       return;
     }
     const uSnapPre = await getDoc(doc(db, 'users', state.userId));
     if (uSnapPre.exists() && uSnapPre.data().blocked === true) {
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ yo lil ass have been blocked by me!. contact my creator if you think this was a mistake!.', sender: 'bot', createdAt: new Date() });
+      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This user has been blocked by admin.', sender: 'bot', createdAt: new Date() });
       return;
     }
     
