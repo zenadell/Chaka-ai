@@ -121,7 +121,7 @@ const applyConfigToUI = () => {
 document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
   DOMElements.fileUploadWrapper.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
-DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
+DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ I am Under maintenance . Do not bother.' : '';
   DOMElements.sendBtn.disabled = false;
 };
 // --- CORE LOGIC (UNCHANGED) ---
@@ -526,7 +526,7 @@ async function sendMessage() {
   try {
     await loadConfigLive();
     if (!botConfig.active) {
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother bitch.', sender: 'bot', createdAt: new Date() });
+      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother.', sender: 'bot', createdAt: new Date() });
       return;
     }
     const uSnapPre = await getDoc(doc(db, 'users', state.userId));
