@@ -1,4 +1,3 @@
-
 // --- FIREBASE IMPORTS & CONFIG (UNCHANGED) ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
@@ -38,6 +37,7 @@ const DOMElements = {
   themeToggle: document.getElementById('theme-toggle'),
   themeIcon: document.getElementById('theme-icon')
 };
+
 // --- APPLICATION STATE (UNCHANGED) ---
 let state = {
   userId: null,
@@ -52,6 +52,23 @@ let state = {
   sessionWasPreviouslyBlocked: false,
   subtleNoteShown: false
 };
+
+// --- GLOBAL STATE FOR FILE UPLOAD (UNCHANGED) ---
+let selectedFile = null;
+
+// --- HELPER FUNCTION (UNCHANGED) ---
+function resetFileInput() {
+  selectedFile = null;
+  const filePreviewContainer = document.getElementById('file-preview-container');
+  const filePreviewName = document.getElementById('file-preview-name');
+  const fileUploadInput = document.getElementById('file-upload');
+  if (filePreviewContainer) filePreviewContainer.style.display = 'none';
+  if (filePreviewName) filePreviewName.textContent = '';
+  if (fileUploadInput) fileUploadInput.value = ''; // Reset input value for re-selection
+  DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+
 let botConfig = {
   botName: "AI Bot",
   themeColor: "#4F46E5",
@@ -66,12 +83,13 @@ let botConfig = {
   showSubtleNotes: true,
   blockReminderNote: ""
 };
+
 // --- UTILITIES (UNCHANGED) ---
 const sanitize = (s) => typeof s === 'string' ? s.trim() : '';
 const autosize = (el) => { el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 150)}px`; };
 const parseBool = (v) => v === true || v === 'true';
 const scrollToBottom = (behavior = 'auto') => { DOMElements.chatMessages.scrollTo({ top: DOMElements.chatMessages.scrollHeight, behavior }); };
-const readUploadedFile = (file) => {
+const parseFileContent = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => resolve(event.target.result);
@@ -121,9 +139,10 @@ const applyConfigToUI = () => {
 document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
   DOMElements.fileUploadWrapper.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
-DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ I am Under maintenance . Do not bother.' : '';
+DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
   DOMElements.sendBtn.disabled = false;
 };
+
 // --- CORE LOGIC (UNCHANGED) ---
 function findMatchingTrigger(message) {
   if (!message) return null;
@@ -350,29 +369,23 @@ function subscribeMessages() {
       const content = document.createElement('div');
 content.className = 'message-content';
 
-// ✅ Format text like ChatGPT: Markdown, paragraphs, code highlighting
 if (typeof marked !== 'undefined') {
-  // Convert Markdown → HTML with GFM + line breaks
-  // ✅ Configure Marked.js like ChatGPT
 marked.setOptions({
-  gfm: true,            // GitHub-flavored Markdown
-  breaks: true,         // Convert line breaks to <br>
-  headerIds: false,     // No random IDs on headers
-  mangle: false         // Prevents mangling of email/links
+  gfm: true,
+  breaks: true,
+  headerIds: false,
+  mangle: false
 });
 
-// ✅ Render the message text
 const rawHTML = marked.parse(msg.text || '');
 content.innerHTML = rawHTML;
 
-// ✅ Highlight code blocks (ChatGPT style)
 content.querySelectorAll('pre code').forEach(block => {
   try { hljs.highlightElement(block); } catch (e) {}
 });
 
   content.innerHTML = rawHTML;
 
-  // Highlight code blocks (same as ChatGPT)
   content.querySelectorAll('pre code').forEach(block => {
     try { hljs.highlightElement(block); } catch (e) {}
   });
@@ -382,8 +395,6 @@ content.querySelectorAll('pre code').forEach(block => {
 
 el.appendChild(content);
 
-
-      // ✅ MODIFICATION: Add copy button to bot messages
       if (msg.sender === 'bot') {
         const copyBtn = document.createElement('button');
         copyBtn.className = 'copy-message-btn';
@@ -447,7 +458,6 @@ async function trackUserLocationAndDevice() {
         return { userAgent: navigator.userAgent, ...deviceInfo };
     }
 }
-
 async function ensureUser(){
   const ref = doc(db, 'users', state.userId);
   const trackingData = await trackUserLocationAndDevice();
@@ -515,18 +525,47 @@ async function isUserOrSessionBlocked(){
   } catch(e) { console.warn('Block check error', e); }
   return { blocked: false };
 }
+
+// --- sendMessage FUNCTION (CORRECTED) ---
 async function sendMessage() {
   const text = sanitize(DOMElements.messageInput.value);
-  if (!text) return;
+  if (!text && !selectedFile) return;
 
   DOMElements.sendBtn.disabled = true;
   DOMElements.sendBtn.classList.add('loading');
   DOMElements.statusRow.textContent = '';
-  showTypingIndicator(true);
+
+  let userMessageToSave = text;
+  let fileTextForPrompt = ''; // Use a local variable for the prompt content
+
   try {
+    if (selectedFile) {
+      DOMElements.statusRow.textContent = `Processing file: ${selectedFile.name}...`;
+      try {
+        fileTextForPrompt = await parseFileContent(selectedFile);
+        console.log("Parsed file content:", fileTextForPrompt);
+
+      } catch (err) {
+        console.error('File parsing failed:', err);
+        DOMElements.statusRow.textContent = `Error reading file: ${err.message}`;
+        resetFileInput();
+        DOMElements.sendBtn.disabled = false;
+        DOMElements.sendBtn.classList.remove('loading');
+        showTypingIndicator(false);
+        return;
+      }
+
+      const fileIndicator = `📄 **File Uploaded: ${selectedFile.name}**`;
+      userMessageToSave = text ? `${fileIndicator}\n\n${text}` : fileIndicator;
+
+      resetFileInput();
+    }
+
+    showTypingIndicator(true);
+
     await loadConfigLive();
     if (!botConfig.active) {
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother.', sender: 'bot', createdAt: new Date() });
+      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother bitch.', sender: 'bot', createdAt: new Date() });
       return;
     }
     const uSnapPre = await getDoc(doc(db, 'users', state.userId));
@@ -534,13 +573,12 @@ async function sendMessage() {
       await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This user has been blocked by admin.', sender: 'bot', createdAt: new Date() });
       return;
     }
-    
-    const handleResult = await handleUserMessage(text);
+
+    const handleResult = await handleUserMessage(userMessageToSave);
     if (handleResult && handleResult.blocked && !handleResult.matchedTrigger) return;
     const snaps = await getDocs(query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc')));
     const historyLines = snaps.docs.map(d => `${d.data().sender === 'user' ? 'User' : 'Bot'}: ${d.data().text || ''}`).join('\n');
-    
-         // ✅ // ✅ MODIFICATION START: Inject Markdown formatting instructions into the persona
+
     const formattingInstructions = `
 ---
 **SYSTEM INSTRUCTIONS:**
@@ -550,12 +588,21 @@ ALWAYS format your responses using Markdown. This is mandatory.
 - Use bold text ('**text**') to highlight key terms.
 - Use code blocks ('\`\`\`') for any code snippets.
 - Ensure there are proper paragraph breaks (a blank line between paragraphs) for longer explanations, proper tab spacing.
+You will receive a file's complete textual content in the section marked [BEGIN ATTACHED FILE CONTENT]...[END ATTACHED FILE CONTENT].
+Respond ONLY with the exact content of that file, preserving formatting, code blocks, and text as is.
+Do NOT add additional commentary or explanation.
 ---
 `;
     const personaWithInstructions = `${formattingInstructions}\n${botConfig.persona || ''}`;
     const personaPart = `${personaWithInstructions}\n\n[Conversation History]\n`;
-    // ✅ MODIFICATION END
-    const finalPrompt = `${personaPart}${historyLines}\nBot:`;
+
+    // Inject actual file contents into prompt if available
+    let fileContextPart = '';
+    if (fileTextForPrompt) {
+      fileContextPart = `[BEGIN ATTACHED FILE CONTENT]\n${fileTextForPrompt}\n[END ATTACHED FILE CONTENT]\n\n`;
+    }
+
+    const finalPrompt = `${personaPart}${fileContextPart}${historyLines}\nBot:`;
 
     let apiKeyToUse = null;
     if (botConfig.apiKeys?.text?.key && botConfig.apiKeys.text.enabled !== false) {
@@ -576,7 +623,7 @@ ALWAYS format your responses using Markdown. This is mandatory.
       body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: finalPrompt }] }] })
     });
     const data = await res.json();
-    const botReply = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I didn’t understand.';
+    const botReply = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'whops! check your internet connection.';
     await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: botReply, sender: 'bot', createdAt: new Date() });
     if (state.sessionWasPreviouslyBlocked && botConfig.showSubtleNotes && botConfig.blockReminderNote && !state.subtleNoteShown) {
       try { await addSubtleNoteToSession(botConfig.blockReminderNote); } catch (e) {}
@@ -595,9 +642,12 @@ ALWAYS format your responses using Markdown. This is mandatory.
     if (botConfig.active !== false) DOMElements.statusRow.textContent = '';
     DOMElements.messageInput.value = '';
     DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+    // The problematic line that cleared the file content has been removed.
   }
 }
 
+
+// --- SESSION MANAGEMENT (UNCHANGED) ---
 function startNewChat(){
   state.sessionId=crypto.randomUUID();
   localStorage.setItem('chatSessionId',state.sessionId);
@@ -637,7 +687,7 @@ let recognition;
 DOMElements.messageInput.addEventListener('input', () => {
   autosize(DOMElements.messageInput);
   const text = DOMElements.messageInput.value.trim();
-  if (text) {
+  if (text || selectedFile) {
     micIcon.style.display = 'none';
     sendIcon.style.display = 'block';
     DOMElements.sendBtn.title = 'Send';
@@ -678,7 +728,7 @@ DOMElements.sendBtn.addEventListener('click', () => {
       return;
   }
   const text = DOMElements.messageInput.value.trim();
-  if (text) sendMessage();
+  if (text || selectedFile) sendMessage();
   else if (recognition) recognition.start();
 });
 
@@ -712,19 +762,19 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('beforeunload', () => { updateUserStatusInFirestore('Offline'); });
 
-// EVENTS & INIT (UNCHANGED)
+// --- EVENTS & INIT (UNCHANGED) ---
 const init = async () => {
   state.userId = localStorage.getItem('chatUserId') || crypto.randomUUID();
   localStorage.setItem('chatUserId', state.userId);
   state.sessionId = localStorage.getItem('chatSessionId') || null;
   applyTheme(state.currentTheme);
-  try { 
-    await loadConfigLive(); 
+  try {
+    await loadConfigLive();
     DOMElements.sendBtn.disabled = false;
-  } catch (err) { 
-    console.warn('Config load failed:', err); 
+  } catch (err) {
+    console.warn('Config load failed:', err);
     DOMElements.statusRow.textContent = `Bot config failed: ${err.message}`;
-    DOMElements.sendBtn.disabled = false; 
+    DOMElements.sendBtn.disabled = false;
   }
   await ensureUser().catch(e => console.error('ensureUser failed', e));
   subscribeSessions();
@@ -750,42 +800,48 @@ const init = async () => {
   const composerObserver = new ResizeObserver(entries => { document.documentElement.style.setProperty('--composer-height', `${entries[0].target.offsetHeight}px`); });
   composerObserver.observe(DOMElements.composer);
 
-  // FILE UPLOAD LOGIC (UNCHANGED)
+  // --- UPDATED FILE UPLOAD & PREVIEW SETUP ---
   const fileUploadInput = document.getElementById('file-upload');
-  DOMElements.fileUploadWrapper.addEventListener('click', () => { fileUploadInput.click(); });
-  fileUploadInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const statusMsg = document.createElement('div');
-    statusMsg.className = 'message-group user';
-    statusMsg.innerHTML = `<div class="message user" style="opacity: 0.7;">📄 Uploading ${file.name}...</div>`;
-    DOMElements.chatMessages.appendChild(statusMsg);
-    scrollToBottom('smooth');
-    try {
-      const text = await readUploadedFile(file);
-      statusMsg.remove();
-      await saveFirstMessageTitleIfNeeded(`File: ${file.name}`);
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
-        text: `📄 **File Uploaded: ${file.name}**\n\n---\n\n${text.slice(0, 1500)}...`,
-        sender: 'user',
-        createdAt: new Date()
-      });
-      DOMElements.messageInput.value = `Summarize the key points from the document I just uploaded, named "${file.name}".`;
-      sendMessage();
-    } catch (err) {
-      console.error("File upload and read failed", err);
-      statusMsg.remove();
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
-        text: `⚠️ Failed to read file: ${err.message}`,
-        sender: 'bot',
-        createdAt: new Date()
-      });
-    } finally {
-      e.target.value = '';
-    }
-  });
+  const filePreviewContainer = document.getElementById('file-preview-container');
+  const filePreviewName = document.getElementById('file-preview-name');
+  const filePreviewCancel = document.getElementById('file-preview-cancel');
+
+  if (DOMElements.fileUploadWrapper && fileUploadInput) {
+    DOMElements.fileUploadWrapper.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (document.activeElement !== fileUploadInput) {
+        fileUploadInput.click();
+      }
+    });
+  }
+
+  if (fileUploadInput) {
+    fileUploadInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      selectedFile = file;
+      console.log('File selected:', file.name);
+
+      if (filePreviewName) filePreviewName.textContent = file.name;
+      if (filePreviewContainer) filePreviewContainer.style.display = 'flex';
+
+      e.target.value = ''; // reset input to allow same file selection later
+
+      DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  if (filePreviewCancel) {
+    filePreviewCancel.addEventListener('click', () => {
+      resetFileInput();
+    });
+  }
+  // --- End updated file upload preview setup ---
+
   DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
 };
 
 // Start the application
 init();
+
