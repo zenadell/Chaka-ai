@@ -353,7 +353,8 @@
     z-index: 10;
     transition: all var(--transition-slow);
     /* ✅ MODIFICATION: Add padding to match the new positioning */
-    padding: 0 1.5rem;
+    //padding: 0 1.5rem;
+    padding-top: 60px;
   }
   #status-row { 
     font-size: 0.8rem; color: var(--text-secondary); min-height: 24px;
@@ -380,7 +381,9 @@
     background-color: transparent; color: var(--text-primary); 
     transition: all var(--transition-fast);
   }
-  #message-input:focus { box-shadow: none; }
+  #message-input:focus { 
+  box-shadow: none; 
+  }
   #send-btn {
     width: 42px; height: 42px;
     border-radius: 50%; background-color: var(--accent); color: white;
@@ -433,9 +436,6 @@
     #composer { left: 0.5rem; right: 0.5rem; bottom: 0; padding: 0; }
     #chat-messages { padding-left: 0.75rem; padding-right: 0.75rem; }
   }
-  
-  
-  
   
   /* =============================
    ChatGPT-Style Message Content
@@ -589,6 +589,43 @@
   margin: 0.5em 0;
 }
 
+/* =============================
+   ✅ ADDED: File Preview Styles
+   ============================= */
+#file-preview-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: var(--bg);
+  padding: 0.4rem 0.4rem 0.4rem 0.8rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  flex-shrink: 0; /* Prevent it from shrinking */
+  max-width: 180px; /* Prevent very long names from breaking layout */
+}
 
-  
-    
+#file-preview-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+
+#file-preview-cancel {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--border);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+#file-preview-cancel:hover {
+  background-color: #ef4444; /* red-500 */
+  color: white;
+}
