@@ -10,8 +10,10 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
 <script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.6.2/dist/dotlottie-wc.js" type="module"></script>
 <link rel="stylesheet" href="style.css">
+
 </head>
 
 <body data-theme="light">
@@ -45,10 +47,16 @@
         <div id="status-row"></div>
         <div id="input-wrapper">
           <div id="file-upload-wrapper" style="display: none;" title="Upload File">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.122 2.122l7.81-7.81" /></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.441l-7.81 7.81a1.5 1.5 0 002.122 2.122l7.81-7.81" /></svg>
             <input id="file-upload" type="file"/>
           </div>
-          <textarea id="message-input" rows="1" placeholder="Type a message..."></textarea>
+
+          <div id="file-preview-container" style="display: none;">
+              <span id="file-preview-name"></span>
+              <button id="file-preview-cancel" title="Remove file">&times;</button>
+          </div>
+
+          <textarea id="message-input" rows="1" placeholder="say whatever!..."></textarea>
           <button id="send-btn" title="Record Voice" disabled>
             <span class="mic-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 1.75a3.25 3.25 0 0 0-3.25 3.25v7.5a3.25 3.25 0 0 0 6.5 0v-7.5A3.25 3.25 0 0 0 12 1.75ZM16.25 12.5a.75.75 0 0 1-1.5 0v-7.5a1.75 1.75 0 0 0-3.5 0v7.5a.75.75 0 0 1-1.5 0v-7.5a3.25 3.25 0 0 1 6.5 0v7.5Z" /><path d="M4.75 10a.75.75 0 0 0-1.5 0v2.5a8.75 8.75 0 0 0 8.75 8.75v3.5a.75.75 0 0 0 1.5 0v-3.5a8.75 8.75 0 0 0 8.75-8.75v-2.5a.75.75 0 0 0-1.5 0v2.5a7.25 7.25 0 0 1-7.25 7.25A7.25 7.25 0 0 1 4.75 12.5v-2.5Z" /></svg></span>
             <span class="send-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg></span>
