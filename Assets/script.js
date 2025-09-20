@@ -440,7 +440,7 @@ function subscribeMessages() {
 
       container.innerHTML = `<div id="welcome-screen">
           <dotlottie-wc src="https://lottie.host/21d66b08-a3d6-4708-9843-5eacc664e174/Oxfbcz3F2M.lottie" style="width: 300px;height: 300px" speed="1" autoplay loop></dotlottie-wc>
-          <h3>How can I help you today?</h3>
+          <h3>What's the goddamn problem? 🤧</h3>
           <div class="prompt-suggestions">
             ${suggestionButtonsHTML}
           </div>
