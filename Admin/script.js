@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/fireba
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   getFirestore, doc, getDoc, setDoc, collection, onSnapshot, query, orderBy, where,
-  serverTimestamp, updateDoc, getDocs, deleteDoc, writeBatch
+  serverTimestamp, updateDoc, getDocs, deleteDoc, writeBatch, addDoc, deleteField
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 // ---------- CONFIG ----------
@@ -30,7 +30,7 @@ const loginEmail = document.getElementById('loginEmail');
 const loginPassword = document.getElementById('loginPassword');
 const toastContainer = document.getElementById('toastContainer');
 
-const views = ['dashboard','moderation','persona','apikeys','config','users','sessions','chats','logs'];
+const views = ['dashboard','moderation','personalities','apikeys','config','users','sessions','chats','logs']; // MODIFIED
 const pageTitle = document.getElementById('pageTitle');
 const adminStatus = document.getElementById('adminStatus');
 const adminEmail = document.getElementById('adminEmail');
@@ -45,10 +45,23 @@ const recentList = document.getElementById('recentList');
 const blockedUsersList = document.getElementById('blocked-users-list');
 const blockedSessionsList = document.getElementById('blocked-sessions-list');
 
-// persona
-const personaText = document.getElementById('personaText');
-const savePersonaBtn = document.getElementById('savePersona');
-const restorePersonaBtn = document.getElementById('restorePersona');
+// personalities refs
+const addPersonalityForm = document.getElementById('addPersonalityForm');
+const personalityNameInput = document.getElementById('personalityName');
+const personalityDescriptionInput = document.getElementById('personalityDescription'); // NEW
+const personalityPersonaInput = document.getElementById('personalityPersona');
+const personalitiesList = document.getElementById('personalitiesList');
+
+// Edit personality modal refs
+const editPersonalityModal = document.getElementById('editPersonalityModal');
+const editPersonalityForm = document.getElementById('editPersonalityForm');
+const editPersonalityId = document.getElementById('editPersonalityId');
+const editPersonalityName = document.getElementById('editPersonalityName');
+const editPersonalityDescription = document.getElementById('editPersonalityDescription'); // NEW
+const editPersonalityPersona = document.getElementById('editPersonalityPersona');
+const cancelEditBtn = document.getElementById('cancelEditBtn');
+const closeEditModalOverlay = document.getElementById('closeEditModalOverlay');
+
 
 // apikeys
 const apiKeysList = document.getElementById('apiKeysList');
@@ -92,6 +105,8 @@ let usersUnsub = null;
 let chatsUnsub = null;
 let latestConfig = null;
 let sessionsUnsubs = [];
+let personalitiesUnsub = null;
+
 // ---------- UI HELPERS ----------
 function showToast(message, type = 'success') {
   const toast = document.createElement('div');
@@ -174,11 +189,12 @@ signOutBtn.addEventListener('click', async () => { await signOut(auth); location
 // ---------- CORE LOGIC ----------
 
 async function initAdmin(){
-  injectTriggersAndSubtleNoteControls();
+  await migrateOriginalPersona();
   subscribeConfig();
   subscribeUsers();
   subscribeLogs();
   subscribeModeration();
+  subscribePersonalities();
   showView('dashboard');
   getAllSessionsCount().catch(()=>{});
   refreshRecentActivity().catch(()=>{});
@@ -186,53 +202,6 @@ async function initAdmin(){
     getAllSessionsCount().catch(()=>{});
     refreshRecentActivity().catch(()=>{});
   }, 10000);
-}
-
-function injectTriggersAndSubtleNoteControls() {
-    const viewConfig = document.getElementById('view-config');
-    if (!viewConfig) return;
-    const card = viewConfig.querySelector('.card');
-    if (!card) return;
-    if (document.getElementById('moderation-controls-wrapper')) return;
-
-    const wrapper = document.createElement('div');
-    wrapper.id = 'moderation-controls-wrapper';
-    wrapper.className = 'card';
-    wrapper.style.marginTop = '1.5rem';
-    wrapper.innerHTML = `
-        <div class="card-header"><h3>Moderation / Triggers</h3><p class="small" style="margin-top:0.25rem">Manage trigger phrases, warnings, and subtle reminder notes.</p></div>
-        <h4>Triggers</h4>
-        <div id="triggersList" class="list" style="max-height: 280px; margin-bottom: 1.5rem; overflow-y: auto;"></div>
-        <button id="addTriggerBtn" class="btn ghost" style="margin-bottom: 2rem;">Add Trigger</button>
-        <h4>Subtle Notes</h4>
-        <div class="form-group">
-            <label class="row" style="cursor:pointer"><input id="subtle-toggle" type="checkbox" style="width:auto; margin-right: 0.5rem;"> Show subtle 
- reminder notes</label>
-        </div>
-        <div class="form-group">
-            <label for="reminder-input">Block reminder note</label>
-            <textarea id="reminder-input" placeholder="E.g. Note: you were previously blocked for violating policy..."></textarea>
-        </div>
-    `;
-    card.parentNode.appendChild(wrapper);
-
-    document.getElementById('addTriggerBtn').addEventListener('click', async () => {
-        const phrase = prompt("Enter trigger phrase:");
-        if (!phrase) return;
-        const action = prompt("Action? (warn/block)", "warn");
-        const newTrigger = { phrase, action: action === "block" ? "block" : "warn", enabled: true };
-        const configRef = doc(db, "config", "global");
-        const snap = await getDoc(configRef);
-        const existing = snap.exists() ? snap.data().triggerPhrases || [] : [];
-        await setDoc(configRef, { triggerPhrases: [...existing, newTrigger] }, { merge: true });
-        showToast('Trigger added!');
-    });
-    document.getElementById('subtle-toggle').onchange = async () => {
-        await updateDoc(doc(db, "config", "global"), { showSubtleNotes: document.getElementById('subtle-toggle').checked });
-    };
-    document.getElementById('reminder-input').onchange = async () => {
-        await updateDoc(doc(db, "config", "global"), { blockReminderNote: document.getElementById('reminder-input').value });
-    };
 }
 
 function subscribeModeration() {
@@ -330,35 +299,222 @@ function subscribeConfig(){
     cfgUserBubble.value = latestConfig.userBubbleColor || '';
     cfgTheme.value = latestConfig.themeColor || '';
     cfgActive.value = (latestConfig.active !== false) ? 'true' : 'false';
-    personaText.value = latestConfig.persona || '';
     toggleActiveBtn.textContent = (latestConfig.active !== false) ? 'Deactivate Bot' : 'Activate Bot';
-  
     renderApiKeys(latestConfig.apiKeys || {});
-
-    const triggerListEl = document.getElementById('triggersList');
-    if (triggerListEl) {
-        triggerListEl.innerHTML = "";
-        (latestConfig.triggerPhrases || []).forEach((t, i) => {
-            const item = document.createElement("div");
-            item.className = 'card'; item.style.padding = '0.75rem 1rem';
-            item.style.marginBottom = '0.5rem';
-            item.innerHTML = `<div style="display:flex; justify-content: space-between; align-items: center;">
-                <div><strong>${t.phrase}</strong> <code style="font-size: 0.75rem; padding: 2px 4px;">${t.action}</code></div>
-                <button class="btn ghost danger" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">❌</button>
-              </div>`;
-            item.querySelector('button').onclick = async () => {
-                const updated = (latestConfig.triggerPhrases || []).filter((_, idx) => idx !== i);
-                await updateDoc(ref, { triggerPhrases: updated });
-            };
-            triggerListEl.appendChild(item);
-        });
-    }
-    const subtleToggleEl = document.getElementById('subtle-toggle');
-    if(subtleToggleEl) subtleToggleEl.checked = !!latestConfig.showSubtleNotes;
-    const reminderInputEl = document.getElementById('reminder-input');
-    if(reminderInputEl) reminderInputEl.value = latestConfig.blockReminderNote || "";
   });
 }
+
+// ----- ⭐️ PERSONALITIES LOGIC (UPDATED & CORRECTED) ⭐️ -----
+
+async function migrateOriginalPersona() {
+    try {
+        const configRef = doc(db, 'config', 'global');
+        const configSnap = await getDoc(configRef);
+
+        if (configSnap.exists() && configSnap.data().persona) {
+            const originalPersonaText = configSnap.data().persona;
+            
+            const personalitiesRef = collection(db, 'personalities');
+            const q = query(personalitiesRef, where("name", "==", "Original Persona"));
+            const existing = await getDocs(q);
+
+            if (existing.empty) {
+                console.log("Migrating original persona...");
+                const currentPersonalities = await getDocs(personalitiesRef);
+                const isFirstPersonality = currentPersonalities.empty;
+
+                await addDoc(personalitiesRef, {
+                    name: "Original Persona",
+                    description: "The classic, original AI persona.",
+                    persona: originalPersonaText,
+                    isDefault: isFirstPersonality,
+                    createdAt: serverTimestamp()
+                });
+                
+                // Only remove the old persona field if it's not the only one.
+                // If it IS the only one, we leave it, because the client needs it.
+                if (!isFirstPersonality) {
+                    await updateDoc(configRef, { persona: deleteField() });
+                }
+                showToast('Original persona migrated successfully!');
+            } else {
+                 await updateDoc(configRef, { persona: deleteField() });
+            }
+        }
+    } catch (e) {
+        console.error("Persona migration failed:", e);
+    }
+}
+
+
+function subscribePersonalities() {
+    const q = query(collection(db, 'personalities'), orderBy('createdAt', 'desc'));
+    if (personalitiesUnsub) personalitiesUnsub();
+
+    personalitiesUnsub = onSnapshot(q, (snapshot) => {
+        personalitiesList.innerHTML = '';
+        if (snapshot.empty) {
+            personalitiesList.innerHTML = '<p class="small" style="padding: 1rem; text-align: center;">No personalities created yet. Add one to get started!</p>';
+            return;
+        }
+
+        snapshot.forEach(docSnap => {
+            const personality = { id: docSnap.id, ...docSnap.data() };
+            const card = document.createElement('div');
+            card.className = 'personality-card';
+            card.innerHTML = `
+                <div class="personality-header">
+                    <div class="personality-info">
+                        <h4 class="personality-name">${personality.name}</h4>
+                        ${personality.isDefault ? '<span class="default-badge">Default</span>' : ''}
+                    </div>
+                    <div class="personality-actions">
+                        <button class="btn ghost set-default-btn" ${personality.isDefault ? 'disabled' : ''}>Set Default</button>
+                        <button class="btn ghost edit-btn">Edit</button>
+                        <button class="btn danger delete-btn">Delete</button>
+                    </div>
+                </div>
+                <p class="personality-persona">${personality.persona}</p>
+            `;
+            personalitiesList.appendChild(card);
+
+            card.querySelector('.set-default-btn').addEventListener('click', (e) => {
+                withLoader(e.currentTarget, () => handleSetDefaultPersonality(personality.id));
+            });
+            card.querySelector('.edit-btn').addEventListener('click', () => {
+                openEditModal(personality.id, personality.name, personality.persona, personality.description || '');
+            });
+            card.querySelector('.delete-btn').addEventListener('click', (e) => {
+                withLoader(e.currentTarget, () => handleDeletePersonality(personality.id, personality.isDefault));
+            });
+        });
+    });
+}
+
+addPersonalityForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const button = e.submitter;
+    withLoader(button, async () => {
+        const name = personalityNameInput.value.trim();
+        const description = personalityDescriptionInput.value.trim();
+        const persona = personalityPersonaInput.value.trim();
+
+        if (!name || !persona) {
+            showToast('Name and Persona are required.', 'error');
+            return;
+        }
+
+        const personalitiesRef = collection(db, 'personalities');
+        const currentPersonalities = await getDocs(personalitiesRef);
+        
+        const newPersonality = {
+            name,
+            description,
+            persona,
+            isDefault: currentPersonalities.empty,
+            createdAt: serverTimestamp()
+        };
+
+        await addDoc(personalitiesRef, newPersonality);
+
+        // If this is the very first personality, also set it in the main config
+        if (currentPersonalities.empty) {
+            const configRef = doc(db, 'config', 'global');
+            await setDoc(configRef, { persona: persona }, { merge: true });
+        }
+
+        showToast('Personality added successfully!');
+        addPersonalityForm.reset();
+    });
+});
+
+async function handleSetDefaultPersonality(docId) {
+    const batch = writeBatch(db);
+    const personalitiesRef = collection(db, 'personalities');
+    
+    // 1. Update isDefault flags in the 'personalities' collection
+    const snapshot = await getDocs(personalitiesRef);
+    snapshot.forEach(docSnap => {
+        batch.update(docSnap.ref, { isDefault: (docSnap.id === docId) });
+    });
+    await batch.commit();
+
+    // 2. [CORRECTION] Get the new default persona and save its
+    //    text to the main config for the client app to use.
+    const newDefaultRef = doc(db, 'personalities', docId);
+    const newDefaultSnap = await getDoc(newDefaultRef);
+    if (newDefaultSnap.exists()) {
+        const personalityData = newDefaultSnap.data();
+        const configRef = doc(db, 'config', 'global');
+        // This puts the 'persona' field back where the client expects it.
+        await setDoc(configRef, {
+            persona: personalityData.persona 
+        }, { merge: true });
+    }
+
+    showToast('Default personality updated!');
+}
+
+
+async function handleDeletePersonality(docId, isDefault) {
+    if (isDefault) {
+        showToast("Cannot delete the default personality.", 'error');
+        return;
+    }
+    if (confirm(`Are you sure you want to delete this personality? This cannot be undone.`)) {
+        await deleteDoc(doc(db, 'personalities', docId));
+        showToast('Personality deleted.', 'error');
+    }
+}
+
+function openEditModal(id, name, persona, description) {
+    editPersonalityId.value = id;
+    editPersonalityName.value = name;
+    editPersonalityPersona.value = persona;
+    editPersonalityDescription.value = description;
+    editPersonalityModal.classList.remove('hidden');
+}
+
+function closeEditModal() {
+    editPersonalityModal.classList.add('hidden');
+    editPersonalityForm.reset();
+}
+
+cancelEditBtn.addEventListener('click', closeEditModal);
+closeEditModalOverlay.addEventListener('click', closeEditModal);
+
+editPersonalityForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const button = e.submitter;
+    withLoader(button, async () => {
+        const id = editPersonalityId.value;
+        const name = editPersonalityName.value.trim();
+        const description = editPersonalityDescription.value.trim();
+        const persona = editPersonalityPersona.value.trim();
+
+        if (!id || !name || !persona) {
+            showToast('Name and Persona are required.', 'error');
+            return;
+        }
+        
+        const personalityRef = doc(db, 'personalities', id);
+        await updateDoc(personalityRef, { name, description, persona });
+
+        // [CORRECTION] Check if the personality we just edited was the default one.
+        // If it was, we must also update the main config's 'persona' field.
+        const personalitySnap = await getDoc(personalityRef);
+        if (personalitySnap.exists() && personalitySnap.data().isDefault) {
+            const configRef = doc(db, 'config', 'global');
+            await setDoc(configRef, { persona: persona }, { merge: true });
+        }
+        
+        showToast('Personality updated successfully!');
+        closeEditModal();
+    });
+});
+
+// ----- END PERSONALITIES LOGIC -----
+
 
 async function saveConfig(){
   const ref = doc(db, 'config', 'global');
@@ -398,12 +554,7 @@ uploadProfileBtn.addEventListener('click', (e) => withLoader(e.currentTarget, as
   await setDoc(ref, { profileImage: url }, { merge: true });
   showToast('Image uploaded!');
 }));
-savePersonaBtn.addEventListener('click', (e) => withLoader(e.currentTarget, async () => {
-  const ref = doc(db, 'config', 'global');
-  await setDoc(ref, { persona: personaText.value }, { merge: true });
-  showToast('Persona saved!');
-}));
-restorePersonaBtn.addEventListener('click', () => { personaText.value = ''; });
+
 
 function renderApiKeys(obj){
   apiKeysList.innerHTML = '';
@@ -464,20 +615,14 @@ function subscribeUsers(){
     users.forEach(u => {
       const el = document.createElement('div');
       el.className = 'card user-card';
-
-      // --- MODIFICATION START ---
-      // Get all the data points from the user object
-      const flagUrl = u.flagUrl || ''; // Assuming you might add this to your tracking script later
       const city = u.city || 'N/A';
       const region = u.region || 'N/A';
       const country = u.country || 'N/A';
       const ip = u.ip || 'N/A';
       const os = u.os || 'N/A';
       const browser = u.browser || 'N/A';
-      const network = u.network || u.isp || u.organization || 'N/A'; // Prioritize the new 'network' field
+      const network = u.network || 'N/A';
       const lastSeen = u.lastSeen ? new Date(u.lastSeen.seconds*1000).toLocaleString() : 'Never';
-      
-      // Get the NEW data points
       const activityStatus = u.activityStatus || 'N/A';
       const connection = u.connection || 'N/A';
       const latitude = u.latitude || 'N/A';
@@ -486,7 +631,7 @@ function subscribeUsers(){
       el.innerHTML = `
         <div class="user-card-header">
             <div class="user-info">
-                ${flagUrl ? `<img src="${flagUrl}" alt="country flag" class="user-flag">` : `<div class="user-flag" style="width: 24px; height: 18px; background: #eee;"></div>`}
+                <div class="user-flag" style="width: 24px; height: 18px; background: #eee;"></div>
                 <code class="user-id" title="Click to copy">${u.id}</code>
             </div>
             <div class="user-actions">
@@ -495,40 +640,15 @@ function subscribeUsers(){
             </div>
         </div>
         <div class="user-card-details">
-            <div class="detail-item">
-                <span class="detail-label">Status</span>
-                <span class="detail-value">${activityStatus}</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">Location</span>
-                <span class="detail-value">${city}, ${region}, ${country}</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">IP Address</span>
-                <span class="detail-value">${ip}</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">Device</span>
-                <span class="detail-value">${os} / ${browser}</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">Network / Carrier</span>
-                <span class="detail-value">${network}</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">Connection</span>
-                <span class="detail-value">${connection}</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">Coordinates</span>
-                <span class="detail-value">${latitude}, ${longitude}</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">Last Seen</span>
-                <span class="detail-value">${lastSeen}</span>
-            </div>
+            <div class="detail-item"><span class="detail-label">Status</span><span class="detail-value">${activityStatus}</span></div>
+            <div class="detail-item"><span class="detail-label">Location</span><span class="detail-value">${city}, ${country}</span></div>
+            <div class="detail-item"><span class="detail-label">IP Address</span><span class="detail-value">${ip}</span></div>
+            <div class="detail-item"><span class="detail-label">Device</span><span class="detail-value">${os} / ${browser}</span></div>
+            <div class="detail-item"><span class="detail-label">Network</span><span class="detail-value">${network}</span></div>
+            <div class="detail-item"><span class="detail-label">Connection</span><span class="detail-value">${connection}</span></div>
+            <div class="detail-item"><span class="detail-label">Coordinates</span><span class="detail-value">${latitude}, ${longitude}</span></div>
+            <div class="detail-item"><span class="detail-label">Last Seen</span><span class="detail-value">${lastSeen}</span></div>
         </div>`;
-      // --- MODIFICATION END ---
       
       usersList.appendChild(el);
       
@@ -651,34 +771,34 @@ function subscribeLogs(){
   onSnapshot(ref, snap => {
     if (!snap.exists()) return;
     const li = document.createElement('div');
-    li.className = 'card';
-    li.textContent = 'config/global updated at ' + new Date().toLocaleString();
-    logsList.prepend(li);
-    if (logsList.children.length > 50) logsList.removeChild(logsList.lastChild);
-  });
+li.className = 'card';
+li.textContent = 'config/global updated at ' + new Date().toLocaleString();
+logsList.prepend(li);
+if (logsList.children.length > 50) logsList.removeChild(logsList.lastChild);
+});
 }
 
 async function getAllSessionsCount(){
-  try {
-    const us = await getDocs(collection(db, 'users'));
-    let total = 0;
-    for (const u of us.docs) {
-      const snaps = await getDocs(collection(db, 'sessions', u.id, 'items'));
-      total += snaps.size;
-    }
-    totalSessionsEl.textContent = total;
-  } catch (e) { console.warn('count sessions failed', e);
-  }
+try {
+const us = await getDocs(collection(db, 'users'));
+let total = 0;
+for (const u of us.docs) {
+const snaps = await getDocs(collection(db, 'sessions', u.id, 'items'));
+total += snaps.size;
+}
+totalSessionsEl.textContent = total;
+} catch (e) { console.warn('count sessions failed', e);
+}
 }
 
 async function refreshRecentActivity(){
-  recentList.innerHTML = '';
-  const us = await getDocs(query(collection(db, 'users'), orderBy('lastSeen', 'desc'),));
-  us.forEach(u => {
-    const data = u.data();
-    const el = document.createElement('div');
-    el.className = 'card';
-    el.innerHTML = `<div style="display:flex;justify-content:space-between"><div><strong>${u.id}</strong><div class="small">Last seen: ${data.lastSeen ? new Date(data.lastSeen.seconds*1000).toLocaleString() : 'N/A'}</div></div><div><span style="background:var(--bg); padding:0.25rem 0.5rem; border-radius:99px; font-size:0.75rem; border:1px solid var(--border-default)">${data.blocked ? 'Blocked' : 'Active'}</span></div></div>`;
-    recentList.appendChild(el);
-  });
+recentList.innerHTML = '';
+const us = await getDocs(query(collection(db, 'users'), orderBy('lastSeen', 'desc'),));
+us.forEach(u => {
+const data = u.data();
+const el = document.createElement('div');
+el.className = 'card';
+el.innerHTML = `<div style="display:flex;justify-content:space-between"><div><strong>${u.id}</strong><div class="small">Last seen: ${data.lastSeen ? new Date(data.lastSeen.seconds*1000).toLocaleString() : 'N/A'}</div></div><div><span style="background:var(--bg); padding:0.25rem 0.5rem; border-radius:99px; font-size:0.75rem; border:1px solid var(--border-default)">${data.blocked ? 'Blocked' : 'Active'}</span></div></div>`;
+recentList.appendChild(el);
+});
 }
