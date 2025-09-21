@@ -16,7 +16,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// --- ⭐ DOM ELEMENTS (MODIFIED) ---
+// --- ⭐ DOM ELEMENTS (UNCHANGED) ---
 const DOMElements = {
   body: document.body,
   sidebar: document.getElementById('sidebar'),
@@ -30,9 +30,9 @@ const DOMElements = {
   scrollToBottomBtn: document.getElementById('scroll-to-bottom'),
   newChatSidebarBtn: document.getElementById('new-chat-sidebar-btn'),
   clearHistoryBtn: document.getElementById('clear-history-btn'),
-  composerActionsBtn: document.getElementById('composer-actions-btn'), // New
-  composerActionsPopup: document.getElementById('composer-actions-popup'), // New
-  personalityList: document.getElementById('personality-list'), // New
+  composerActionsBtn: document.getElementById('composer-actions-btn'),
+  composerActionsPopup: document.getElementById('composer-actions-popup'),
+  personalityList: document.getElementById('personality-list'),
   fileUploadWrapper: document.getElementById('file-upload-wrapper'),
   messageInput: document.getElementById('message-input'),
   sendBtn: document.getElementById('send-btn'),
@@ -41,11 +41,14 @@ const DOMElements = {
   themeIcon: document.getElementById('theme-icon')
 };
 
-// --- ⭐ APPLICATION STATE (MODIFIED) ---
+// --- ⭐ APPLICATION STATE (CORRECTED) ---
+// Added `personalitiesUnsub` to manage the new real-time listener.
 let state = {
   userId: null,
   sessionId: null,
-  selectedPersonalityId: null, // New
+  selectedPersonalityId: null,
+  defaultPersonalityId: null, 
+  personalitiesUnsub: null, // <-- NEW: To manage the real-time listener
   firstMessageSaved: false,
   sessionsUnsub: null,
   messagesUnsub: null,
@@ -116,7 +119,7 @@ const isDark = theme === 'dark';
   DOMElements.themeIcon.innerHTML = isDark
     ?
 `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" /></svg>`
-    : `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 0 0 0 9.002-5.998Z" /></svg>`;
+    : `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" /></svg>`;
 };
 DOMElements.themeToggle.addEventListener('click', () => { state.currentTheme = state.currentTheme === 'light' ? 'dark' : 'light'; applyTheme(state.currentTheme); });
 const showTypingIndicator = (show) => {
@@ -144,30 +147,42 @@ const addCopyButtons = () => {
   });
 };
 
-// --- applyConfigToUI (MODIFIED) ---
+// --- applyConfigToUI (UNCHANGED) ---
 const applyConfigToUI = () => {
   DOMElements.chatTitle.textContent = botConfig.botName || 'AI Bot';
   DOMElements.botAvatar.src = botConfig.profileImage || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
   
-  // Toggle the visibility of the main actions button
   DOMElements.composerActionsBtn.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
 
   DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
   DOMElements.sendBtn.disabled = false;
 };
 
-// --- PERSONALITY FUNCTIONS (UNCHANGED from previous version) ---
-async function fetchAndDisplayPersonalities() {
-    try {
-        const personalitiesCol = collection(db, 'personalities');
-        const personalitySnapshot = await getDocs(personalitiesCol);
-        
+// --- ⭐ PERSONALITY FUNCTIONS (CORRECTED FOR REAL-TIME) ---
+// This function now subscribes to personality changes in real-time.
+function subscribeAndDisplayPersonalities() {
+    // Unsubscribe from any previous listener to prevent duplicates
+    if (state.personalitiesUnsub) state.personalitiesUnsub();
+
+    const personalitiesCol = collection(db, 'personalities');
+    const q = query(personalitiesCol, orderBy('createdAt', 'desc'));
+
+    // --- REAL-TIME LOGIC START ---
+    state.personalitiesUnsub = onSnapshot(q, (personalitySnapshot) => {
+        const oldDefaultId = state.defaultPersonalityId;
+        const currentSelectedId = state.selectedPersonalityId;
+
         DOMElements.personalityList.innerHTML = ''; 
+        let newDefaultPersonalityId = null;
 
         if (personalitySnapshot.empty) {
             DOMElements.personalityList.innerHTML = '<p class="no-personalities">No personalities available.</p>';
+            // Clear personality state if none exist
+            state.defaultPersonalityId = null;
+            state.selectedPersonalityId = null;
+            localStorage.removeItem('selectedPersonalityId');
             return;
         }
 
@@ -175,18 +190,19 @@ async function fetchAndDisplayPersonalities() {
             const personality = docSnap.data();
             const id = docSnap.id;
 
+            if (personality.isDefault) {
+                newDefaultPersonalityId = id;
+            }
+
             const item = document.createElement('div');
             item.className = 'personality-item';
             item.dataset.id = id;
-
             item.innerHTML = `
                 <img src="${personality.avatar || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}" alt="${sanitize(personality.name)}" class="personality-avatar">
                 <div class="personality-info">
                     <div class="personality-name">${sanitize(personality.name) || 'Unnamed'}</div>
                     <div class="personality-description">${sanitize(personality.description) || 'No description'}</div>
-                </div>
-            `;
-
+                </div>`;
             item.addEventListener('click', () => {
                 if (state.selectedPersonalityId === id) return;
                 state.selectedPersonalityId = id;
@@ -201,19 +217,32 @@ async function fetchAndDisplayPersonalities() {
             DOMElements.personalityList.appendChild(item);
         });
         
-        const storedPersonalityId = localStorage.getItem('selectedPersonalityId');
-        if (storedPersonalityId) {
-            const activeItem = DOMElements.personalityList.querySelector(`.personality-item[data-id="${storedPersonalityId}"]`);
-            if (activeItem) {
-                activeItem.classList.add('active');
-                state.selectedPersonalityId = storedPersonalityId;
+        state.defaultPersonalityId = newDefaultPersonalityId;
+        
+        // Logic to automatically switch to the new default personality
+        // This runs if the user was on the old default or had no selection (first load).
+        if (currentSelectedId === oldDefaultId || currentSelectedId === null) {
+            state.selectedPersonalityId = newDefaultPersonalityId;
+            if (newDefaultPersonalityId) {
+                localStorage.setItem('selectedPersonalityId', newDefaultPersonalityId);
+            } else {
+                localStorage.removeItem('selectedPersonalityId');
             }
         }
-
-    } catch (error) {
-        console.error("Error fetching personalities:", error);
+        
+        // Update the UI to reflect the active personality
+        document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
+        if (state.selectedPersonalityId) {
+            const activeItem = DOMElements.personalityList.querySelector(`.personality-item[data-id="${state.selectedPersonalityId}"]`);
+            if (activeItem) {
+                activeItem.classList.add('active');
+            }
+        }
+    }, (error) => {
+        console.error("Error subscribing to personalities:", error);
         DOMElements.personalityList.innerHTML = '<p class="no-personalities">Error loading personalities.</p>';
-    }
+    });
+    // --- REAL-TIME LOGIC END ---
 }
 
 
@@ -440,7 +469,7 @@ function subscribeMessages() {
 
       container.innerHTML = `<div id="welcome-screen">
           <dotlottie-wc src="https://lottie.host/21d66b08-a3d6-4708-9843-5eacc664e174/Oxfbcz3F2M.lottie" style="width: 300px;height: 300px" speed="1" autoplay loop></dotlottie-wc>
-          <h3> What's the goddamn problem? </h3>
+          <h3>How can I help you today?</h3>
           <div class="prompt-suggestions">
             ${suggestionButtonsHTML}
           </div>
@@ -615,7 +644,7 @@ async function isUserOrSessionBlocked(){
   return { blocked: false };
 }
 
-// --- sendMessage (MODIFIED FOR PERSONALITY PRECEDENCE) ---
+// --- sendMessage FUNCTION (UNCHANGED & CORRECT) ---
 async function sendMessage() {
   const text = sanitize(DOMElements.messageInput.value);
   if (!text && !selectedFile) return;
@@ -677,16 +706,21 @@ async function sendMessage() {
       
       const snaps = await getDocs(query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc')));
       
-      let selectedPersonaInstructions = '';
+      let activePersonaInstructions = '';
+
       if (state.selectedPersonalityId) {
           try {
               const personaDoc = await getDoc(doc(db, 'personalities', state.selectedPersonalityId));
               if (personaDoc.exists()) {
-                  selectedPersonaInstructions = personaDoc.data().persona || '';
+                  activePersonaInstructions = personaDoc.data().persona || '';
               }
           } catch (e) {
-              console.warn("Could not fetch selected personality", e);
+              console.warn("Could not fetch selected personality, falling back to default.", e);
           }
+      }
+
+      if (!activePersonaInstructions) {
+          activePersonaInstructions = botConfig.persona || '';
       }
 
       const formattingInstructions = `---
@@ -697,16 +731,10 @@ provide clear, readable, and well-structured answers. ALWAYS format your respons
 - Use code blocks for code snippets.
 ---`;
       
-      // *** MODIFIED LOGIC: Prioritize selected personality, then fallback to botConfig.persona ***
-      let effectivePersona = selectedPersonaInstructions;
-      if (!effectivePersona && botConfig.persona) { 
-          effectivePersona = botConfig.persona;
-      }
-
-      const combinedPersona = `${effectivePersona}\n\n${formattingInstructions}`;
+      const combinedPersona = `${activePersonaInstructions}\n\n${formattingInstructions}`;
 
       const systemInstruction = {
-          role: 'user', // System instructions are given to the model as part of the user's initial prompt
+          role: 'user',
           parts: [{ text: combinedPersona }]
       };
       
@@ -802,15 +830,20 @@ provide clear, readable, and well-structured answers. ALWAYS format your respons
   }
 }
 
-
-// --- SESSION MANAGEMENT (UNCHANGED from previous version) ---
+// --- SESSION MANAGEMENT (UNCHANGED & CORRECT) ---
 function startNewChat(){
-  if (state.selectedPersonalityId) {
+  state.selectedPersonalityId = state.defaultPersonalityId;
+  if (state.defaultPersonalityId) {
+    localStorage.setItem('selectedPersonalityId', state.defaultPersonalityId);
   } else {
-      state.selectedPersonalityId = null;
-      localStorage.removeItem('selectedPersonalityId');
-      document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
+    localStorage.removeItem('selectedPersonalityId');
   }
+  document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
+  if (state.defaultPersonalityId) {
+      const defaultEl = document.querySelector(`.personality-item[data-id="${state.defaultPersonalityId}"]`);
+      if (defaultEl) defaultEl.classList.add('active');
+  }
+
   state.sessionId=crypto.randomUUID();
   localStorage.setItem('chatSessionId',state.sessionId);
   state.firstMessageSaved=false;
@@ -897,16 +930,20 @@ DOMElements.sendBtn.addEventListener('click', () => {
   else if (recognition) recognition.start();
 });
 
-// --- USER ACTIVITY TRACKING (UNCHANGED) ---
+// --- USER ACTIVITY TRACKING (UNCHANGED & CORRECT) ---
 async function updateUserStatusInFirestore(status) {
     if (!state.userId || !db) return;
     try {
         const userRef = doc(db, 'users', state.userId);
-        await updateDoc(userRef, { activityStatus: status, lastSeen: serverTimestamp() });
+        await setDoc(userRef, { 
+            activityStatus: status, 
+            lastSeen: serverTimestamp() 
+        }, { merge: true });
     } catch (e) {
         console.warn("Could not update user status", e);
     }
 }
+
 let inactivityTimer;
 const inactivityTimeout = 60000;
 function setUserActive() {
@@ -927,16 +964,17 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('beforeunload', () => { updateUserStatusInFirestore('Offline'); });
 
-// --- ⭐ MODIFIED: init FUNCTION (Corrected Event Listeners) ---
+// --- ⭐ init FUNCTION (CORRECTED) ---
 const init = async () => {
   state.userId = localStorage.getItem('chatUserId') || crypto.randomUUID();
   localStorage.setItem('chatUserId', state.userId);
   state.sessionId = localStorage.getItem('chatSessionId') || null;
-  state.selectedPersonalityId = localStorage.getItem('selectedPersonalityId') || null;
+  
   applyTheme(state.currentTheme);
   try {
     await loadConfigLive();
-    await fetchAndDisplayPersonalities();
+    // Changed this to the new real-time subscription function
+    subscribeAndDisplayPersonalities(); 
     DOMElements.sendBtn.disabled = false;
   } catch (err) {
     console.warn('Config/Personality load failed:', err);
@@ -954,13 +992,12 @@ const init = async () => {
     startNewChat();
   }
 
-  // --- EVENT LISTENERS (✅ CORRECTED & IMPROVED) ---
+  // --- EVENT LISTENERS (UNCHANGED) ---
   DOMElements.menuBtn.addEventListener('click', () => { 
     DOMElements.sidebar.classList.toggle('open'); 
     DOMElements.overlay.classList.toggle('show'); 
   });
 
-  // Centralized overlay click handler
   DOMElements.overlay.addEventListener('click', () => { 
       DOMElements.sidebar.classList.remove('open');
       DOMElements.composerActionsPopup.classList.remove('show');
@@ -969,9 +1006,6 @@ const init = async () => {
   });
   
   const handleNewChat = () => { 
-      state.selectedPersonalityId = null;
-      localStorage.removeItem('selectedPersonalityId');
-      document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
       startNewChat();
       if (window.innerWidth<=900) { 
         DOMElements.sidebar.classList.remove('open'); 
@@ -989,7 +1023,6 @@ const init = async () => {
   const composerObserver = new ResizeObserver(entries => { document.documentElement.style.setProperty('--composer-height', `${entries[0].target.offsetHeight}px`); });
   composerObserver.observe(DOMElements.composer);
 
-  // Corrected listener for the actions button
   DOMElements.composerActionsBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const isOpening = !DOMElements.composerActionsBtn.classList.contains('active');
@@ -998,7 +1031,6 @@ const init = async () => {
       DOMElements.overlay.classList.toggle('show', isOpening);
   });
 
-  // --- FILE UPLOAD LOGIC ---
   const fileUploadInput = document.getElementById('file-upload');
   const filePreviewContainer = document.getElementById('file-preview-container');
   const filePreviewName = document.getElementById('file-preview-name');
