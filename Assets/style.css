@@ -22,7 +22,7 @@
     --accent-dark: #818CF8;
     --bg-dark: #282828;
     --surface-dark: #141414;
-    --glass-dark: rgba(17, 24, 39, 0.75);
+    --glass-dark: rgba(20, 20, 20, 0.75);
     --text-primary-dark: #fffefc;
     --text-secondary-dark: #9CA3AF;
     --border-dark: #374151;
@@ -371,14 +371,13 @@
   }
   #scroll-to-bottom svg { width: 20px; height: 20px; }
   
-  /* --- ⌨️ COMPOSER AREA (MODIFIED) --- */
+  /* --- ⌨️ COMPOSER AREA (UNCHANGED) --- */
   #composer {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
     flex-shrink: 0;
-    /* ✅ FIXED: Increased z-index to lift composer above the overlay */
     z-index: 101; 
     transition: all var(--transition-slow);
     padding: 0 0 1.5rem 0;
@@ -415,23 +414,50 @@
   #message-input:focus { box-shadow: none; }
   
   #send-btn {
-    width: 42px; height: 42px;
-    border-radius: 50%; background-color: var(--accent); color: white;
-    display: flex; align-items: center; justify-content: center; transition: all var(--transition-fast);
-    flex-shrink: 0; box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent);
+    width: 42px; 
+    height: 42px;
+    border-radius: 50%; 
+    background-color: var(--accent); 
+    color: white;
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    transition: all var(--transition-fast);
+    flex-shrink: 0; 
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent);
   }
   #send-btn:hover { transform: scale(1.05); }
-  #send-btn:active { transform: scale(0.95); transition-duration: 0.1s; }
-  #send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: scale(1); box-shadow: none; }
+  
+  #send-btn:active { 
+      transform: scale(0.95); 
+      transition-duration: 0.1s; 
+  }
+  #send-btn:disabled { 
+     opacity: 0.5; 
+     cursor: not-allowed; 
+     transform: scale(1); 
+     box-shadow: none; 
+  }
   #send-btn .mic-icon { display: block; }
   #send-btn .send-icon { display: none; }
   #send-btn .spinner { display: none; }
+  
   #send-btn.loading .mic-icon, #send-btn.loading .send-icon { display: none; }
+  
   #send-btn.loading .spinner {
-    display: block; width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3);
-    border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;
+    display: block; 
+    width: 20px; 
+    height: 20px; 
+    border: 3px solid rgba(255,255,255,0.3);
+    border-top-color: white; 
+    border-radius: 50%; 
+    animation: spin 1s linear infinite;
   }
-  #send-btn.listening { background-color: #e53935; animation: pulse-mic 1.5s infinite; }
+  
+  #send-btn.listening { 
+    background-color: #e53935; 
+    animation: pulse-mic 1.5s infinite; }
+    
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes pulse-mic {
     0% { box-shadow: 0 0 0 0 rgba(229, 57, 53, 0.7); }
@@ -439,7 +465,7 @@
     100% { box-shadow: 0 0 0 0 rgba(229, 57, 53, 0); }
   }
 
-  /* --- ACTIONS BUTTON & POPUP (UNCHANGED from previous fix) --- */
+  /* --- ACTIONS BUTTON & POPUP (UNCHANGED) --- */
   #composer-actions-btn {
     flex-shrink: 0;
     position: relative;
@@ -690,4 +716,95 @@
 @keyframes blink {
   from, to { background-color: transparent; }
   50% { background-color: var(--text-primary); }
+}
+
+/* --- ✅ [MODIFIED] MODAL FOR CHAT CONTINUATION --- */
+.hidden {
+  display: none !important;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(17, 24, 39, 0.6); /* Changed for better blur visibility */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px); /* Added for Safari compatibility */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity var(--transition-fast), backdrop-filter var(--transition-fast); /* Added transition */
+  padding: 1rem;
+}
+.modal-overlay:not(.hidden) {
+  opacity: 1;
+}
+.modal-content {
+  position: relative; 
+  background-color: var(--bg);
+  padding: 1.5rem 2rem;
+  border-radius: var(--radius-md);
+  max-width: 400px;
+  width: 100%;
+  box-shadow: var(--shadow);
+  text-align: center;
+  transform: scale(0.95);
+  transition: transform var(--transition-fast);
+}
+.modal-overlay:not(.hidden) .modal-content {
+    transform: scale(1);
+}
+.modal-close-btn {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-size: 2rem;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color var(--transition-fast);
+}
+.modal-close-btn:hover {
+  color: var(--text-primary);
+}
+.modal-content h3 {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  color: var(--text-primary);
+  font-size: 1.25rem;
+}
+.modal-content p {
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+.btn {
+  padding: 9px 7px;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+  background-color: var(--accent);
+  color: white;
+}
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+}
+.btn.ghost {
+    background-color: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+}
+.btn.ghost:hover {
+    background-color: var(--surface);
+    border-color: var(--accent);
 }
