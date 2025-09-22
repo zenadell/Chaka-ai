@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
   getFirestore, doc, getDoc, setDoc, collection, addDoc, onSnapshot,
-  query, orderBy, serverTimestamp, updateDoc, getDocs, writeBatch
+  query, orderBy, serverTimestamp, updateDoc, getDocs, writeBatch, where, limit
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 const firebaseConfig = {
   apiKey: "AIzaSyCBBm3pHDVgUYs2BTzwVwtTwC-cOAFjKWo",
@@ -41,14 +41,13 @@ const DOMElements = {
   themeIcon: document.getElementById('theme-icon')
 };
 
-// --- ⭐ APPLICATION STATE (CORRECTED) ---
-// Added `personalitiesUnsub` to manage the new real-time listener.
+// --- ⭐ APPLICATION STATE (UNCHANGED) ---
 let state = {
   userId: null,
   sessionId: null,
   selectedPersonalityId: null,
-  defaultPersonalityId: null, 
-  personalitiesUnsub: null, // <-- NEW: To manage the real-time listener
+  defaultPersonalityId: null,
+  personalitiesUnsub: null,
   firstMessageSaved: false,
   sessionsUnsub: null,
   messagesUnsub: null,
@@ -70,14 +69,14 @@ function resetFileInput() {
   const filePreviewContainer = document.getElementById('file-preview-container');
   const filePreviewName = document.getElementById('file-preview-name');
   const fileUploadInput = document.getElementById('file-upload');
-  
+
   if (filePreviewContainer) {
       filePreviewContainer.style.display = 'none';
       DOMElements.composer.classList.remove('file-attached');
   }
   if (filePreviewName) filePreviewName.textContent = '';
-  if (fileUploadInput) fileUploadInput.value = ''; 
-  
+  if (fileUploadInput) fileUploadInput.value = '';
+
   DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
@@ -153,33 +152,110 @@ const applyConfigToUI = () => {
   DOMElements.botAvatar.src = botConfig.profileImage || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
-  
+
   DOMElements.composerActionsBtn.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
 
   DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
   DOMElements.sendBtn.disabled = false;
 };
 
-// --- ⭐ PERSONALITY FUNCTIONS (CORRECTED FOR REAL-TIME) ---
-// This function now subscribes to personality changes in real-time.
+
+// --- ✅ [CORRECTED] HELPER FUNCTIONS FOR CHAT CONTINUATION ---
+async function findLastSessionForPersonality(personalityId) {
+    if (!state.userId || !personalityId) return null;
+    try {
+        const sessionsRef = collection(db, 'sessions', state.userId, 'items');
+        const q = query(
+            sessionsRef,
+            where('personalityId', '==', personalityId),
+            orderBy('updatedAt', 'desc'),
+            limit(1)
+        );
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+            return querySnapshot.docs[0].id;
+        }
+        return null;
+    } catch (error) {
+        console.error("Error finding last session for personality:", error);
+        return null;
+    }
+}
+
+function showContinuationPrompt(personalityId, lastSessionId) {
+    const modal = document.getElementById('continuation-modal');
+    const continueBtn = document.getElementById('continue-chat-btn');
+    const newChatBtn = document.getElementById('new-chat-modal-btn');
+    const cancelBtn = document.getElementById('cancel-modal-btn');
+
+    modal.classList.remove('hidden');
+
+    const updateStateAndUI = () => {
+        state.selectedPersonalityId = personalityId;
+        localStorage.setItem('selectedPersonalityId', personalityId);
+        
+        document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
+        const newItem = DOMElements.personalityList.querySelector(`.personality-item[data-id="${personalityId}"]`);
+        if (newItem) newItem.classList.add('active');
+    };
+
+    // This single cleanup function will handle all ways of closing the modal
+    const cleanup = () => {
+        modal.classList.add('hidden');
+        DOMElements.overlay.classList.remove('show');
+        // Manually remove the overlay click listener to prevent it from staying active
+        modal.removeEventListener('click', overlayClickHandler);
+    };
+
+    const continueHandler = () => {
+        updateStateAndUI();
+        loadSessionById(lastSessionId);
+        cleanup();
+    };
+
+    const newChatHandler = () => {
+        updateStateAndUI();
+        startNewChat(); 
+        cleanup();
+    };
+    
+    const cancelHandler = () => {
+        cleanup();
+    };
+
+    // ✅ NEW: Handler to check for clicks on the modal background
+    const overlayClickHandler = (event) => {
+        // If the click target is the modal overlay itself (the background), cancel.
+        if (event.target === modal) {
+            cancelHandler();
+        }
+    };
+    
+    // Use { once: true } for buttons to auto-remove their listeners after one click
+    continueBtn.addEventListener('click', continueHandler, { once: true });
+    newChatBtn.addEventListener('click', newChatHandler, { once: true });
+    cancelBtn.addEventListener('click', cancelHandler, { once: true });
+    
+    // Add the listener for the overlay background click
+    modal.addEventListener('click', overlayClickHandler);
+}
+
+// --- ✅ [CORRECTED] PERSONALITY SELECTION LOGIC ---
 function subscribeAndDisplayPersonalities() {
-    // Unsubscribe from any previous listener to prevent duplicates
     if (state.personalitiesUnsub) state.personalitiesUnsub();
 
     const personalitiesCol = collection(db, 'personalities');
     const q = query(personalitiesCol, orderBy('createdAt', 'desc'));
 
-    // --- REAL-TIME LOGIC START ---
     state.personalitiesUnsub = onSnapshot(q, (personalitySnapshot) => {
         const oldDefaultId = state.defaultPersonalityId;
         const currentSelectedId = state.selectedPersonalityId;
 
-        DOMElements.personalityList.innerHTML = ''; 
+        DOMElements.personalityList.innerHTML = '';
         let newDefaultPersonalityId = null;
 
         if (personalitySnapshot.empty) {
             DOMElements.personalityList.innerHTML = '<p class="no-personalities">No personalities available.</p>';
-            // Clear personality state if none exist
             state.defaultPersonalityId = null;
             state.selectedPersonalityId = null;
             localStorage.removeItem('selectedPersonalityId');
@@ -203,24 +279,45 @@ function subscribeAndDisplayPersonalities() {
                     <div class="personality-name">${sanitize(personality.name) || 'Unnamed'}</div>
                     <div class="personality-description">${sanitize(personality.description) || 'No description'}</div>
                 </div>`;
-            item.addEventListener('click', () => {
-                if (state.selectedPersonalityId === id) return;
-                state.selectedPersonalityId = id;
-                localStorage.setItem('selectedPersonalityId', id);
-                document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
-                item.classList.add('active');
-                startNewChat();
+            
+            item.addEventListener('click', async () => {
+                if (state.selectedPersonalityId === id) {
+                    // If already selected, just close the popup menu
+                    DOMElements.composerActionsPopup.classList.remove('show');
+                    DOMElements.composerActionsBtn.classList.remove('active');
+                    DOMElements.overlay.classList.remove('show');
+                    return;
+                }
+
+                const lastSessionId = await findLastSessionForPersonality(id);
+
+                // Hide the personality popup menu itself first
                 DOMElements.composerActionsPopup.classList.remove('show');
                 DOMElements.composerActionsBtn.classList.remove('active');
-                DOMElements.overlay.classList.remove('show');
+                
+                if (lastSessionId) {
+                    // A session exists, so show the prompt.
+                    // The overlay remains visible for the modal.
+                    showContinuationPrompt(id, lastSessionId);
+                } else {
+                    // No session exists, switch directly.
+                    // Hide the overlay since no modal is appearing.
+                    DOMElements.overlay.classList.remove('show');
+
+                    // Now, update state and UI
+                    state.selectedPersonalityId = id;
+                    localStorage.setItem('selectedPersonalityId', id);
+                    document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
+                    item.classList.add('active');
+                    
+                    startNewChat();
+                }
             });
             DOMElements.personalityList.appendChild(item);
         });
-        
+
         state.defaultPersonalityId = newDefaultPersonalityId;
-        
-        // Logic to automatically switch to the new default personality
-        // This runs if the user was on the old default or had no selection (first load).
+
         if (currentSelectedId === oldDefaultId || currentSelectedId === null) {
             state.selectedPersonalityId = newDefaultPersonalityId;
             if (newDefaultPersonalityId) {
@@ -229,8 +326,7 @@ function subscribeAndDisplayPersonalities() {
                 localStorage.removeItem('selectedPersonalityId');
             }
         }
-        
-        // Update the UI to reflect the active personality
+
         document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
         if (state.selectedPersonalityId) {
             const activeItem = DOMElements.personalityList.querySelector(`.personality-item[data-id="${state.selectedPersonalityId}"]`);
@@ -242,7 +338,6 @@ function subscribeAndDisplayPersonalities() {
         console.error("Error subscribing to personalities:", error);
         DOMElements.personalityList.innerHTML = '<p class="no-personalities">Error loading personalities.</p>';
     });
-    // --- REAL-TIME LOGIC END ---
 }
 
 
@@ -391,7 +486,7 @@ state.configPromise = (async () => {
       botConfig.blockReminderNote = (typeof data?.blockReminderNote === 'string') ? data.blockReminderNote : (data?.blockReminderNote || botConfig.blockReminderNote);
     };
     try {
-    
+
   const snap = await getDoc(cfgRef);
       if (snap.exists()) {
         applyCfg(snap.data());
@@ -461,7 +556,7 @@ function subscribeMessages() {
           { title: 'Debug some code', prompt: 'What is wrong with this Javascript code? \n\nfunction (){ \n  const x = 1;\n  if(true) {\n    const x = 2;\n  }\n  return x;\n}', icon: '💻' }
       ];
 
-      const suggestionButtonsHTML = suggestions.map(s => 
+      const suggestionButtonsHTML = suggestions.map(s =>
         `<button class="prompt-suggestion-btn" data-prompt="${sanitize(s.prompt)}">
           <span class="prompt-title">${s.title}</span>
         </button>`
@@ -474,7 +569,7 @@ function subscribeMessages() {
             ${suggestionButtonsHTML}
           </div>
         </div>`;
-      
+
       container.querySelectorAll('.prompt-suggestion-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const promptText = e.currentTarget.dataset.prompt;
@@ -485,7 +580,7 @@ function subscribeMessages() {
       });
       return;
     }
-    
+
     const messages = snap.docs.map(doc => doc.data());
     let lastSender = null, messageGroup = null;
     messages.forEach(msg => {
@@ -497,7 +592,7 @@ function subscribeMessages() {
       }
       const el = document.createElement('div');
       el.className = `message ${msg.sender}`;
-      
+
       const content = document.createElement('div');
       content.className = 'message-content';
 
@@ -526,7 +621,7 @@ function subscribeMessages() {
         };
         el.appendChild(copyBtn);
       }
-      
+
       if(msg.sender==='user'&&botConfig.userBubbleColor) el.style.background = botConfig.userBubbleColor;
       if(msg.sender==='bot'&&botConfig.botBubbleColor) el.style.background = botConfig.botBubbleColor;
       messageGroup.appendChild(el);
@@ -593,11 +688,20 @@ async function ensureUser(){
     await updateDoc(ref, updateData).catch(() => {});
   }
 }
+
+// --- ✅ [MODIFIED] SESSION METADATA NOW SAVES PERSONALITY ID ---
 async function ensureSessionMetadataOnFirstMsg(sid, msg){
   const ref=doc(db,'sessions',state.userId,'items',sid);
   const s = await getDoc(ref);
   if(!s.exists()){
-    await setDoc(ref,{title:msg||'New Chat',createdAt:serverTimestamp(),updatedAt:serverTimestamp(), warnings: 0, wasBlocked: false}, { merge: true });
+    await setDoc(ref,{
+        title: msg || 'New Chat',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        warnings: 0, 
+        wasBlocked: false,
+        personalityId: state.selectedPersonalityId // <-- This now correctly links the session to the personality
+    }, { merge: true });
   } else {
     const d = s.data();
     if((!d.title||d.title==='New Chat') && msg){
@@ -644,7 +748,7 @@ async function isUserOrSessionBlocked(){
   return { blocked: false };
 }
 
-// --- sendMessage FUNCTION (UNCHANGED & CORRECT) ---
+// --- sendMessage FUNCTION (UNCHANGED) ---
 async function sendMessage() {
   const text = sanitize(DOMElements.messageInput.value);
   if (!text && !selectedFile) return;
@@ -661,7 +765,7 @@ async function sendMessage() {
   try {
       if (selectedFile) {
           DOMElements.statusRow.textContent = `Processing file: ${selectedFile.name}...`;
-          try { 
+          try {
               fileContentForNextMessage = await parseFileContent(selectedFile);
           } catch (err) {
               console.error('File parsing failed:', err);
@@ -689,7 +793,7 @@ async function sendMessage() {
 
       const handleResult = await handleUserMessage(userMessageToSave);
       if (handleResult && handleResult.blocked && !handleResult.matchedTrigger) return;
-      
+
       DOMElements.chatMessages.querySelector('#welcome-screen')?.remove();
       const botMessageGroup = document.createElement('div');
       botMessageGroup.className = 'message-group bot streaming';
@@ -703,9 +807,9 @@ async function sendMessage() {
       botMessageGroup.appendChild(botMessageEl);
       DOMElements.chatMessages.appendChild(botMessageGroup);
       scrollToBottom('smooth');
-      
+
       const snaps = await getDocs(query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc')));
-      
+
       let activePersonaInstructions = '';
 
       if (state.selectedPersonalityId) {
@@ -730,14 +834,14 @@ provide clear, readable, and well-structured answers. ALWAYS format your respons
 - Use bold text for key terms.
 - Use code blocks for code snippets.
 ---`;
-      
+
       const combinedPersona = `${activePersonaInstructions}\n\n${formattingInstructions}`;
 
       const systemInstruction = {
           role: 'user',
           parts: [{ text: combinedPersona }]
       };
-      
+
       const contents = [];
       snaps.docs.forEach(doc => {
           const data = doc.data();
@@ -767,13 +871,13 @@ provide clear, readable, and well-structured answers. ALWAYS format your respons
           DOMElements.statusRow.textContent = 'API key missing';
           return;
       }
-      
+
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?key=${encodeURIComponent(apiKeyToUse)}`;
-      
+
       const requestBody = {
           contents: [systemInstruction, {role: 'model', parts: [{text: "Understood."}]}, ...contents],
       };
-      
+
       const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -787,7 +891,7 @@ provide clear, readable, and well-structured answers. ALWAYS format your respons
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      
+
       while (true) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -830,20 +934,8 @@ provide clear, readable, and well-structured answers. ALWAYS format your respons
   }
 }
 
-// --- SESSION MANAGEMENT (UNCHANGED & CORRECT) ---
+// --- ⭐ SESSION MANAGEMENT (UNCHANGED) ---
 function startNewChat(){
-  state.selectedPersonalityId = state.defaultPersonalityId;
-  if (state.defaultPersonalityId) {
-    localStorage.setItem('selectedPersonalityId', state.defaultPersonalityId);
-  } else {
-    localStorage.removeItem('selectedPersonalityId');
-  }
-  document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
-  if (state.defaultPersonalityId) {
-      const defaultEl = document.querySelector(`.personality-item[data-id="${state.defaultPersonalityId}"]`);
-      if (defaultEl) defaultEl.classList.add('active');
-  }
-
   state.sessionId=crypto.randomUUID();
   localStorage.setItem('chatSessionId',state.sessionId);
   state.firstMessageSaved=false;
@@ -851,13 +943,11 @@ function startNewChat(){
   checkSessionWasPreviouslyBlocked().catch(()=>{});
   document.querySelectorAll('.session-item.active').forEach(el=>el.classList.remove('active'));
 }
+
 function loadSessionById(id){
   state.sessionId=id;
   localStorage.setItem('chatSessionId',id);
   state.firstMessageSaved=true;
-  state.selectedPersonalityId = null;
-  localStorage.removeItem('selectedPersonalityId');
-  document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
   subscribeMessages();
   checkSessionWasPreviouslyBlocked().catch(()=>{});
   document.querySelectorAll('.session-item.active').forEach(el=>el.classList.remove('active'));
@@ -865,6 +955,7 @@ function loadSessionById(id){
   if(el)el.classList.add('active');
   if(window.innerWidth<=900){DOMElements.sidebar.classList.remove('open');DOMElements.overlay.classList.remove('show');}
 }
+
 async function clearHistory(){
   if(!confirm('Clear chat history? This cannot be undone.'))return;
   try{
@@ -930,14 +1021,14 @@ DOMElements.sendBtn.addEventListener('click', () => {
   else if (recognition) recognition.start();
 });
 
-// --- USER ACTIVITY TRACKING (UNCHANGED & CORRECT) ---
+// --- USER ACTIVITY TRACKING (UNCHANGED) ---
 async function updateUserStatusInFirestore(status) {
     if (!state.userId || !db) return;
     try {
         const userRef = doc(db, 'users', state.userId);
-        await setDoc(userRef, { 
-            activityStatus: status, 
-            lastSeen: serverTimestamp() 
+        await setDoc(userRef, {
+            activityStatus: status,
+            lastSeen: serverTimestamp()
         }, { merge: true });
     } catch (e) {
         console.warn("Could not update user status", e);
@@ -964,17 +1055,17 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('beforeunload', () => { updateUserStatusInFirestore('Offline'); });
 
-// --- ⭐ init FUNCTION (CORRECTED) ---
+// --- ⭐ INIT FUNCTION (UNCHANGED) ---
 const init = async () => {
   state.userId = localStorage.getItem('chatUserId') || crypto.randomUUID();
   localStorage.setItem('chatUserId', state.userId);
   state.sessionId = localStorage.getItem('chatSessionId') || null;
-  
+  state.selectedPersonalityId = localStorage.getItem('selectedPersonalityId') || null;
+
   applyTheme(state.currentTheme);
   try {
     await loadConfigLive();
-    // Changed this to the new real-time subscription function
-    subscribeAndDisplayPersonalities(); 
+    subscribeAndDisplayPersonalities();
     DOMElements.sendBtn.disabled = false;
   } catch (err) {
     console.warn('Config/Personality load failed:', err);
@@ -993,23 +1084,23 @@ const init = async () => {
   }
 
   // --- EVENT LISTENERS (UNCHANGED) ---
-  DOMElements.menuBtn.addEventListener('click', () => { 
-    DOMElements.sidebar.classList.toggle('open'); 
-    DOMElements.overlay.classList.toggle('show'); 
+  DOMElements.menuBtn.addEventListener('click', () => {
+    DOMElements.sidebar.classList.toggle('open');
+    DOMElements.overlay.classList.toggle('show');
   });
 
-  DOMElements.overlay.addEventListener('click', () => { 
+  DOMElements.overlay.addEventListener('click', () => {
       DOMElements.sidebar.classList.remove('open');
       DOMElements.composerActionsPopup.classList.remove('show');
       DOMElements.composerActionsBtn.classList.remove('active');
       DOMElements.overlay.classList.remove('show');
   });
-  
-  const handleNewChat = () => { 
+
+  const handleNewChat = () => {
       startNewChat();
-      if (window.innerWidth<=900) { 
-        DOMElements.sidebar.classList.remove('open'); 
-        DOMElements.overlay.classList.remove('show'); 
+      if (window.innerWidth<=900) {
+        DOMElements.sidebar.classList.remove('open');
+        DOMElements.overlay.classList.remove('show');
       }
   };
   DOMElements.newChatSidebarBtn.addEventListener('click', handleNewChat);
@@ -1048,10 +1139,10 @@ const init = async () => {
 
       DOMElements.composer.prepend(filePreviewContainer);
       DOMElements.composer.classList.add('file-attached');
-      
+
       if (filePreviewName) filePreviewName.textContent = file.name;
       if (filePreviewContainer) filePreviewContainer.style.display = 'flex';
-      
+
       e.target.value = '';
       DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
     });
@@ -1062,7 +1153,7 @@ const init = async () => {
       resetFileInput();
     });
   }
-  
+
   DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
 };
 
