@@ -96,6 +96,92 @@ let botConfig = {
   blockReminderNote: ""
 };
 
+// --- ⭐ [NEW] API KEY MANAGEMENT ---
+const apiKeyManager = {
+    keys: [], // Array of { id, key }
+    currentIndex: 0,
+    usageTimestamps: new Map(), // Map<string, number[]> to store request timestamps for each key
+
+    /**
+     * Initializes the manager with the API key configuration from Firebase.
+     * It filters for enabled, text-based keys.
+     * @param {object} apiKeysConfig - The `apiKeys` object from `botConfig`.
+     */
+    initialize(apiKeysConfig) {
+        this.keys = Object.entries(apiKeysConfig || {})
+            .filter(([, val]) => val && val.type === 'text' && val.enabled !== false && val.key)
+            .map(([id, val]) => ({ id, key: val.key.trim() }));
+
+        this.usageTimestamps.clear();
+        this.keys.forEach(k => this.usageTimestamps.set(k.id, []));
+        
+        if (this.currentIndex >= this.keys.length) {
+            this.currentIndex = 0;
+        }
+        
+        console.log(`API Key Manager Initialized/Updated with ${this.keys.length} keys.`);
+    },
+
+    /**
+     * Gets the current key to be used for a request.
+     * @returns {object|null} The current key object { id, key, index } or null if no keys are available.
+     */
+    getCurrentKey() {
+        if (this.keys.length === 0) return null;
+        const keyData = this.keys[this.currentIndex];
+        return { ...keyData, index: this.currentIndex };
+    },
+
+    /**
+     * Switches to the next available key in the list, wrapping around if necessary.
+     * @returns {object|null} The new current key object or null.
+     */
+    switchToNextKey() {
+        if (this.keys.length === 0) return null;
+        const oldIndex = this.currentIndex;
+        this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+        console.warn(`Switched API key from index ${oldIndex} to ${this.currentIndex}.`);
+        return this.getCurrentKey();
+    },
+
+    /**
+     * Records a successful API request for a given key ID.
+     * @param {string} keyId - The ID of the key that was used.
+     */
+    recordUsage(keyId) {
+        if (!this.usageTimestamps.has(keyId)) return;
+        const now = Date.now();
+        const timestamps = this.usageTimestamps.get(keyId);
+        timestamps.push(now);
+        const sixtySecondsAgo = now - 60000;
+        const recentTimestamps = timestamps.filter(ts => ts > sixtySecondsAgo);
+        this.usageTimestamps.set(keyId, recentTimestamps);
+    },
+
+    /**
+     * Provides usage information for a key, including rate limit status and time until reset.
+     * @param {string} keyId - The ID of the key to check.
+     * @returns {object} An object with { count, isRateLimited, timeLeft }
+     */
+    getUsageInfo(keyId) {
+        if (!this.usageTimestamps.has(keyId)) return { count: 0, isRateLimited: false, timeLeft: 0 };
+        
+        const now = Date.now();
+        const sixtySecondsAgo = now - 60000;
+        const timestamps = this.usageTimestamps.get(keyId).filter(ts => ts > sixtySecondsAgo);
+
+        const count = timestamps.length;
+        const isRateLimited = count >= 5; // Rate limit: 5 messages per minute
+        let timeLeft = 0;
+        
+        if (isRateLimited) {
+            const oldestTimestampInWindow = timestamps[0];
+            timeLeft = Math.ceil((oldestTimestampInWindow + 60000 - now) / 1000);
+        }
+        return { count, isRateLimited, timeLeft: Math.max(0, timeLeft) };
+    }
+};
+
 // --- UTILITIES (UNCHANGED) ---
 const sanitize = (s) => typeof s === 'string' ? s.trim() : '';
 const autosize = (el) => { el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 150)}px`; };
@@ -160,7 +246,7 @@ const applyConfigToUI = () => {
 };
 
 
-// --- ✅ [CORRECTED] HELPER FUNCTIONS FOR CHAT CONTINUATION ---
+// --- ✅ [CORRECTED] HELPER FUNCTIONS FOR CHAT CONTINUATION (UNCHANGED FROM YOUR SCRIPT) ---
 async function findLastSessionForPersonality(personalityId) {
     if (!state.userId || !personalityId) return null;
     try {
@@ -199,11 +285,9 @@ function showContinuationPrompt(personalityId, lastSessionId) {
         if (newItem) newItem.classList.add('active');
     };
 
-    // This single cleanup function will handle all ways of closing the modal
     const cleanup = () => {
         modal.classList.add('hidden');
         DOMElements.overlay.classList.remove('show');
-        // Manually remove the overlay click listener to prevent it from staying active
         modal.removeEventListener('click', overlayClickHandler);
     };
 
@@ -223,24 +307,20 @@ function showContinuationPrompt(personalityId, lastSessionId) {
         cleanup();
     };
 
-    // ✅ NEW: Handler to check for clicks on the modal background
     const overlayClickHandler = (event) => {
-        // If the click target is the modal overlay itself (the background), cancel.
         if (event.target === modal) {
             cancelHandler();
         }
     };
     
-    // Use { once: true } for buttons to auto-remove their listeners after one click
     continueBtn.addEventListener('click', continueHandler, { once: true });
     newChatBtn.addEventListener('click', newChatHandler, { once: true });
     cancelBtn.addEventListener('click', cancelHandler, { once: true });
     
-    // Add the listener for the overlay background click
     modal.addEventListener('click', overlayClickHandler);
 }
 
-// --- ✅ [CORRECTED] PERSONALITY SELECTION LOGIC ---
+// --- ✅ [CORRECTED] PERSONALITY SELECTION LOGIC (UNCHANGED FROM YOUR SCRIPT) ---
 function subscribeAndDisplayPersonalities() {
     if (state.personalitiesUnsub) state.personalitiesUnsub();
 
@@ -282,7 +362,6 @@ function subscribeAndDisplayPersonalities() {
             
             item.addEventListener('click', async () => {
                 if (state.selectedPersonalityId === id) {
-                    // If already selected, just close the popup menu
                     DOMElements.composerActionsPopup.classList.remove('show');
                     DOMElements.composerActionsBtn.classList.remove('active');
                     DOMElements.overlay.classList.remove('show');
@@ -291,20 +370,14 @@ function subscribeAndDisplayPersonalities() {
 
                 const lastSessionId = await findLastSessionForPersonality(id);
 
-                // Hide the personality popup menu itself first
                 DOMElements.composerActionsPopup.classList.remove('show');
                 DOMElements.composerActionsBtn.classList.remove('active');
                 
                 if (lastSessionId) {
-                    // A session exists, so show the prompt.
-                    // The overlay remains visible for the modal.
                     showContinuationPrompt(id, lastSessionId);
                 } else {
-                    // No session exists, switch directly.
-                    // Hide the overlay since no modal is appearing.
                     DOMElements.overlay.classList.remove('show');
 
-                    // Now, update state and UI
                     state.selectedPersonalityId = id;
                     localStorage.setItem('selectedPersonalityId', id);
                     document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
@@ -465,6 +538,8 @@ out.blocked = true;
 }
   return out;
 }
+
+// --- ✅ [MODIFIED] loadConfigLive FUNCTION ---
 function loadConfigLive() {
   if (state.configPromise) return state.configPromise;
 state.configPromise = (async () => {
@@ -473,6 +548,10 @@ state.configPromise = (async () => {
       Object.assign(botConfig, data || {});
       botConfig.allowFileUpload = parseBool(botConfig.allowFileUpload);
       botConfig.apiKeys = botConfig.apiKeys || {};
+
+      // ✅ MODIFICATION: Initialize the API key manager whenever config changes.
+      apiKeyManager.initialize(botConfig.apiKeys);
+
       if (typeof botConfig.apiKey === 'string') botConfig.apiKey = botConfig.apiKey.trim();
       if (Array.isArray(data?.triggerPhrases)) {
         state.triggers = data.triggerPhrases.map(t => {
@@ -689,7 +768,7 @@ async function ensureUser(){
   }
 }
 
-// --- ✅ [MODIFIED] SESSION METADATA NOW SAVES PERSONALITY ID ---
+// --- ✅ [MODIFIED] SESSION METADATA NOW SAVES PERSONALITY ID (UNCHANGED FROM YOUR SCRIPT) ---
 async function ensureSessionMetadataOnFirstMsg(sid, msg){
   const ref=doc(db,'sessions',state.userId,'items',sid);
   const s = await getDoc(ref);
@@ -700,7 +779,7 @@ async function ensureSessionMetadataOnFirstMsg(sid, msg){
         updatedAt: serverTimestamp(),
         warnings: 0, 
         wasBlocked: false,
-        personalityId: state.selectedPersonalityId // <-- This now correctly links the session to the personality
+        personalityId: state.selectedPersonalityId
     }, { merge: true });
   } else {
     const d = s.data();
@@ -748,7 +827,7 @@ async function isUserOrSessionBlocked(){
   return { blocked: false };
 }
 
-// --- sendMessage FUNCTION (UNCHANGED) ---
+// --- ✅ [MODIFIED] sendMessage FUNCTION ---
 async function sendMessage() {
   const text = sanitize(DOMElements.messageInput.value);
   if (!text && !selectedFile) return;
@@ -811,22 +890,13 @@ async function sendMessage() {
       const snaps = await getDocs(query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc')));
 
       let activePersonaInstructions = '';
-
       if (state.selectedPersonalityId) {
           try {
               const personaDoc = await getDoc(doc(db, 'personalities', state.selectedPersonalityId));
-              if (personaDoc.exists()) {
-                  activePersonaInstructions = personaDoc.data().persona || '';
-              }
-          } catch (e) {
-              console.warn("Could not fetch selected personality, falling back to default.", e);
-          }
+              if (personaDoc.exists()) { activePersonaInstructions = personaDoc.data().persona || ''; }
+          } catch (e) { console.warn("Could not fetch selected personality, falling back to default.", e); }
       }
-
-      if (!activePersonaInstructions) {
-          activePersonaInstructions = botConfig.persona || '';
-      }
-
+      if (!activePersonaInstructions) { activePersonaInstructions = botConfig.persona || ''; }
       const formattingInstructions = `---
 **SYSTEM INSTRUCTIONS:**
 provide clear, readable, and well-structured answers. ALWAYS format your responses using Markdown. This is mandatory.
@@ -834,78 +904,107 @@ provide clear, readable, and well-structured answers. ALWAYS format your respons
 - Use bold text for key terms.
 - Use code blocks for code snippets.
 ---`;
-
       const combinedPersona = `${activePersonaInstructions}\n\n${formattingInstructions}`;
-
-      const systemInstruction = {
-          role: 'user',
-          parts: [{ text: combinedPersona }]
-      };
-
+      const systemInstruction = { role: 'user', parts: [{ text: combinedPersona }] };
       const contents = [];
       snaps.docs.forEach(doc => {
           const data = doc.data();
-          if (data.text) {
-              contents.push({
-                  role: data.sender === 'user' ? 'user' : 'model',
-                  parts: [{ text: data.text }]
-              });
-          }
+          if (data.text) { contents.push({ role: data.sender === 'user' ? 'user' : 'model', parts: [{ text: data.text }] }); }
       });
-
       if (fileContentForNextMessage) {
           const lastMessage = contents[contents.length - 1];
-          if (lastMessage && lastMessage.role === 'user') {
-              lastMessage.parts[0].text = `[The user has attached a file named "${selectedFile?.name || 'file'}" with the following content. Analyze it and respond to their message.]\n\n---FILE CONTENT---\n${fileContentForNextMessage}\n---END FILE CONTENT---\n\nUser's Message: "${lastMessage.parts[0].text}"`;
+          if (lastMessage && lastMessage.role === 'user') { lastMessage.parts[0].text = `[The user has attached a file named "${selectedFile?.name || 'file'}" with the following content. Analyze it and respond to their message.]\n\n---FILE CONTENT---\n${fileContentForNextMessage}\n---END FILE CONTENT---\n\nUser's Message: "${lastMessage.parts[0].text}"`; }
+      }
+      const requestBody = { contents: [systemInstruction, {role: 'model', parts: [{text: "Understood."}]}, ...contents] };
+
+      // ✅ --- [NEW] API KEY ROTATION LOGIC ---
+
+      if (apiKeyManager.keys.length === 0) {
+          throw new Error("No enabled API keys found. Please configure them in the admin panel.");
+      }
+
+      let responseSuccessful = false;
+      let attempts = 0;
+      const maxAttempts = apiKeyManager.keys.length;
+
+      while (!responseSuccessful && attempts < maxAttempts) {
+          attempts++;
+          const currentKeyInfo = apiKeyManager.getCurrentKey();
+          
+          const usage = apiKeyManager.getUsageInfo(currentKeyInfo.id);
+          if (usage.isRateLimited) {
+              DOMElements.statusRow.textContent = `Key rate limit reached. Next attempt in ${usage.timeLeft}s. Trying next key...`;
+              console.warn(`Key ${currentKeyInfo.index} is rate-limited. Waiting for ${usage.timeLeft}s. Switching to the next key.`);
+              apiKeyManager.switchToNextKey();
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              continue;
           }
-      }
 
-      let apiKeyToUse = null;
-      if (botConfig.apiKeys?.text?.key && botConfig.apiKeys.text.enabled !== false) {
-          apiKeyToUse = botConfig.apiKeys.text.key.trim();
-      } else if (typeof botConfig.apiKey === 'string' && botConfig.apiKey.trim()) {
-          apiKeyToUse = botConfig.apiKey.trim();
-      }
-      if (!apiKeyToUse) {
-          await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Bot API key missing. Ask admin to set it.', sender: 'bot', createdAt: new Date() });
-          DOMElements.statusRow.textContent = 'API key missing';
-          return;
-      }
+          try {
+              DOMElements.statusRow.textContent = `Using API Key #${currentKeyInfo.index + 1}. Attempt ${attempts}/${maxAttempts}.`;
+              console.log(`Attempting request with key index: ${currentKeyInfo.index}`);
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?key=${encodeURIComponent(apiKeyToUse)}`;
+              const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?key=${encodeURIComponent(currentKeyInfo.key)}`;
+              const res = await fetch(endpoint, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(requestBody)
+              });
 
-      const requestBody = {
-          contents: [systemInstruction, {role: 'model', parts: [{text: "Understood."}]}, ...contents],
-      };
+              if (!res.ok) {
+                  const errorText = await res.text();
+                  let errorMessage = 'API request failed';
+                  try {
+                      const errorData = JSON.parse(errorText);
+                      errorMessage = errorData?.error?.message || errorMessage;
+                  } catch (e) {
+                      errorMessage = errorText || errorMessage;
+                  }
+                  throw new Error(errorMessage);
+              }
 
-      const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-      });
+              const reader = res.body.getReader();
+              const decoder = new TextDecoder();
+              while (true) {
+                  const { value, done } = await reader.read();
+                  if (done) break;
+                  const chunk = decoder.decode(value);
+                  const lines = chunk.split('\n');
+                  for (const line of lines) {
+                      if (line.trim().startsWith('"text":')) {
+                          const textPart = line.substring(line.indexOf(':') + 2).replace(/",?$/, '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                          accumulatedBotReply += textPart;
+                          botMessageContent.innerHTML = marked.parse(accumulatedBotReply + '<span class="typing-cursor"></span>');
+                          scrollToBottom('smooth');
+                      }
+                  }
+              }
+              
+              apiKeyManager.recordUsage(currentKeyInfo.id);
+              responseSuccessful = true;
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData?.error?.message || 'API request failed');
-      }
+          } catch (err) {
+              console.error(`Attempt ${attempts} with key index ${currentKeyInfo.index} failed:`, err.message);
+              
+              const isRotationError = err.message.toLowerCase().includes('api key not valid') ||
+                                    err.message.toLowerCase().includes('resource has been exhausted') ||
+                                    err.message.toLowerCase().includes('api request failed');
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-              if (line.trim().startsWith('"text":')) {
-                  const textPart = line.substring(line.indexOf(':') + 2).replace(/",?$/, '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
-                  accumulatedBotReply += textPart;
-                  botMessageContent.innerHTML = marked.parse(accumulatedBotReply + '<span class="typing-cursor"></span>');
-                  scrollToBottom('smooth');
+              if (isRotationError && attempts < maxAttempts) {
+                  DOMElements.statusRow.textContent = `Key #${currentKeyInfo.index + 1} failed. Waiting 10s before trying next key...`;
+                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  apiKeyManager.switchToNextKey();
+              } else {
+                  throw err; 
               }
           }
       }
+
+      if (!responseSuccessful) {
+        throw new Error("All available API keys failed. Please check your configuration in the admin panel.");
+      }
+      
+      // ✅ --- END OF NEW LOGIC ---
 
       botMessageContent.innerHTML = marked.parse(accumulatedBotReply);
       botMessageContent.querySelectorAll('pre code').forEach(block => {
