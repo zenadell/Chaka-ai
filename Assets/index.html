@@ -68,11 +68,20 @@
           </div>
 
           <textarea id="message-input" rows="1" placeholder="say whatever!..."></textarea>
-          <button id="send-btn" title="Record Voice" disabled>
-            <span class="mic-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 1.75a3.25 3.25 0 0 0-3.25 3.25v7.5a3.25 3.25 0 0 0 6.5 0v-7.5A3.25 3.25 0 0 0 12 1.75ZM16.25 12.5a.75.75 0 0 1-1.5 0v-7.5a1.75 1.75 0 0 0-3.5 0v7.5a.75.75 0 0 1-1.5 0v-7.5a3.25 3.25 0 0 1 6.5 0v7.5Z" /><path d="M4.75 10a.75.75 0 0 0-1.5 0v2.5a8.75 8.75 0 0 0 8.75 8.75v3.5a.75.75 0 0 0 1.5 0v-3.5a8.75 8.75 0 0 0 8.75-8.75v-2.5a.75.75 0 0 0-1.5 0v2.5a7.25 7.25 0 0 1-7.25 7.25A7.25 7.25 0 0 1 4.75 12.5v-2.5Z" /></svg></span>
-            <span class="send-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg></span>
-            <span class="spinner"></span>
-          </button>
+          
+         <button id="send-btn" title="Send" disabled>
+  <span class="mic-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 1.75a3.25 3.25 0 0 0-3.25 3.25v7.5a3.25 3.25 0 0 0 6.5 0v-7.5A3.25 3.25 0 0 0 12 1.75ZM16.25 12.5a.75.75 0 0 1-1.5 0v-7.5a1.75 1.75 0 0 0-3.5 0v7.5a.75.75 0 0 1-1.5 0v-7.5a3.25 3.25 0 0 1 6.5 0v7.5Z" /><path d="M4.75 10a.75.75 0 0 0-1.5 0v2.5a8.75 8.75 0 0 0 8.75 8.75v3.5a.75.75 0 0 0 1.5 0v-3.5a8.75 8.75 0 0 0 8.75-8.75v-2.5a.75.75 0 0 0-1.5 0v2.5a7.25 7.25 0 0 1-7.25 7.25A7.25 7.25 0 0 1 4.75 12.5v-2.5Z" /></svg></span>
+  <span class="send-icon" style="display: none;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg></span>
+  <span class="stop-icon" style="display: none;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 265.405 265.405" xml:space="preserve" fill="currentColor" width="22" height="22">
+    <g>
+        <path style="fill:#fff;" d="M132.703,0C59.53,0,0,59.53,0,132.702s59.53,132.702,132.703,132.702 c73.172,0,132.702-59.53,132.702-132.702S205.875,0,132.703,0z M132.703,250.405C67.801,250.405,15,197.604,15,132.702 S67.801,15,132.703,15c64.901,0,117.702,52.801,117.702,117.702S197.604,250.405,132.703,250.405z"/>
+        <path style="fill:#fff;" d="M174.816,73.089H90.589c-9.649,0-17.5,7.851-17.5,17.5v84.227c0,9.649,7.851,17.5,17.5,17.5h84.227 c9.649,0,17.5-7.851,17.5-17.5V90.589C192.316,80.94,184.465,73.089,174.816,73.089z M177.316,174.816c0,1.355-1.145,2.5-2.5,2.5 H90.589c-1.355,0-2.5-1.145-2.5-2.5V90.589c0-1.355,1.145-2.5,2.5-2.5h84.227c1.355,0,2.5,1.145,2.5,2.5V174.816z"/>
+    </g>
+  </svg></span>
+  <span class="spinner" style="display: none;"></span>
+</button>
+
+
         </div>
       </div>
     </main>
