@@ -59,6 +59,15 @@ let state = {
   subtleNoteShown: false
 };
 
+// --- ⭐ STATE FOR AUTOMATED API RETRY PROCESS (UNCHANGED from previous version) ---
+let autoRetryState = {
+    isActive: false,
+    stopRequested: false,
+    requestPayload: null,
+    botMessageElements: null
+};
+let fetchController;
+
 // --- GLOBAL STATE FOR FILE UPLOAD (UNCHANGED) ---
 let selectedFile = null;
 let fileContentForNextMessage = '';
@@ -96,46 +105,24 @@ let botConfig = {
   blockReminderNote: ""
 };
 
-// --- ⭐ [NEW] API KEY MANAGEMENT ---
+// --- ⭐ API KEY MANAGEMENT (UNCHANGED from previous version) ---
 const apiKeyManager = {
-    keys: [], // Array of { id, key }
+    keys: [],
     currentIndex: 0,
-    usageTimestamps: new Map(), // Map<string, number[]> to store request timestamps for each key
-
-    /**
-     * Initializes the manager with the API key configuration from Firebase.
-     * It filters for enabled, text-based keys.
-     * @param {object} apiKeysConfig - The `apiKeys` object from `botConfig`.
-     */
+    usageTimestamps: new Map(),
     initialize(apiKeysConfig) {
         this.keys = Object.entries(apiKeysConfig || {})
             .filter(([, val]) => val && val.type === 'text' && val.enabled !== false && val.key)
             .map(([id, val]) => ({ id, key: val.key.trim() }));
-
         this.usageTimestamps.clear();
         this.keys.forEach(k => this.usageTimestamps.set(k.id, []));
-        
-        if (this.currentIndex >= this.keys.length) {
-            this.currentIndex = 0;
-        }
-        
+        if (this.currentIndex >= this.keys.length) this.currentIndex = 0;
         console.log(`API Key Manager Initialized/Updated with ${this.keys.length} keys.`);
     },
-
-    /**
-     * Gets the current key to be used for a request.
-     * @returns {object|null} The current key object { id, key, index } or null if no keys are available.
-     */
     getCurrentKey() {
         if (this.keys.length === 0) return null;
-        const keyData = this.keys[this.currentIndex];
-        return { ...keyData, index: this.currentIndex };
+        return { ...this.keys[this.currentIndex], index: this.currentIndex };
     },
-
-    /**
-     * Switches to the next available key in the list, wrapping around if necessary.
-     * @returns {object|null} The new current key object or null.
-     */
     switchToNextKey() {
         if (this.keys.length === 0) return null;
         const oldIndex = this.currentIndex;
@@ -143,37 +130,22 @@ const apiKeyManager = {
         console.warn(`Switched API key from index ${oldIndex} to ${this.currentIndex}.`);
         return this.getCurrentKey();
     },
-
-    /**
-     * Records a successful API request for a given key ID.
-     * @param {string} keyId - The ID of the key that was used.
-     */
     recordUsage(keyId) {
         if (!this.usageTimestamps.has(keyId)) return;
         const now = Date.now();
         const timestamps = this.usageTimestamps.get(keyId);
         timestamps.push(now);
         const sixtySecondsAgo = now - 60000;
-        const recentTimestamps = timestamps.filter(ts => ts > sixtySecondsAgo);
-        this.usageTimestamps.set(keyId, recentTimestamps);
+        this.usageTimestamps.set(keyId, timestamps.filter(ts => ts > sixtySecondsAgo));
     },
-
-    /**
-     * Provides usage information for a key, including rate limit status and time until reset.
-     * @param {string} keyId - The ID of the key to check.
-     * @returns {object} An object with { count, isRateLimited, timeLeft }
-     */
     getUsageInfo(keyId) {
         if (!this.usageTimestamps.has(keyId)) return { count: 0, isRateLimited: false, timeLeft: 0 };
-        
         const now = Date.now();
         const sixtySecondsAgo = now - 60000;
         const timestamps = this.usageTimestamps.get(keyId).filter(ts => ts > sixtySecondsAgo);
-
         const count = timestamps.length;
-        const isRateLimited = count >= 5; // Rate limit: 5 messages per minute
+        const isRateLimited = count >= 5;
         let timeLeft = 0;
-        
         if (isRateLimited) {
             const oldestTimestampInWindow = timestamps[0];
             timeLeft = Math.ceil((oldestTimestampInWindow + 60000 - now) / 1000);
@@ -549,7 +521,6 @@ state.configPromise = (async () => {
       botConfig.allowFileUpload = parseBool(botConfig.allowFileUpload);
       botConfig.apiKeys = botConfig.apiKeys || {};
 
-      // ✅ MODIFICATION: Initialize the API key manager whenever config changes.
       apiKeyManager.initialize(botConfig.apiKeys);
 
       if (typeof botConfig.apiKey === 'string') botConfig.apiKey = botConfig.apiKey.trim();
@@ -827,53 +798,312 @@ async function isUserOrSessionBlocked(){
   return { blocked: false };
 }
 
-// --- ✅ [MODIFIED] sendMessage FUNCTION ---
+// --- ✅ [HEAVILY MODIFIED] sendMessage AND NEW HELPER FUNCTIONS ---
+
+/**
+ * [NEW] Toggles the state of the send button (Mic, Send, Stop).
+ * @param {'mic' | 'send' | 'stop'} state - The target state.
+ */
+function toggleSendButtonState(buttonState) {
+    const btn = DOMElements.sendBtn;
+    const icons = {
+        mic: btn.querySelector('.mic-icon'),
+        send: btn.querySelector('.send-icon'),
+        stop: btn.querySelector('.stop-icon'),
+    };
+    
+    for (const icon in icons) {
+        if (icons[icon]) icons[icon].style.display = 'none';
+    }
+    btn.disabled = false;
+
+    switch (buttonState) {
+        case 'mic':
+            if (icons.mic) icons.mic.style.display = 'block';
+            btn.title = 'Record Voice';
+            break;
+        case 'send':
+            if (icons.send) icons.send.style.display = 'block';
+            btn.title = 'Send';
+            break;
+        case 'stop':
+            if (icons.stop) icons.stop.style.display = 'block';
+            btn.title = 'Stop Generating';
+            break;
+    }
+}
+
+/**
+ * [NEW] Creates a cancellable promise that waits for a specified duration.
+ * It also updates the UI with a countdown message.
+ * @param {number} duration - The wait duration in milliseconds.
+ * @param {string} [countdownMessage] - The message to display with the countdown.
+ * @returns {Promise<boolean>} A promise that resolves to true if stopped by the user, false otherwise.
+ */
+function cancellableWait(duration, countdownMessage = '') {
+    return new Promise(resolve => {
+        let timeLeft = Math.ceil(duration / 1000);
+        const updateCountdown = () => {
+            if (countdownMessage) {
+                DOMElements.statusRow.textContent = `${countdownMessage} ${timeLeft}...`;
+            }
+        };
+
+        if (countdownMessage) updateCountdown();
+        
+        const interval = setInterval(() => {
+            if (autoRetryState.stopRequested) {
+                clearInterval(interval);
+                clearTimeout(timeout);
+                resolve(true); // Stopped
+            }
+            timeLeft--;
+            if (countdownMessage) updateCountdown();
+        }, 1000);
+
+        const timeout = setTimeout(() => {
+            clearInterval(interval);
+            if (!autoRetryState.stopRequested) {
+                resolve(false); // Not stopped
+            }
+        }, duration);
+    });
+}
+
+
+/**
+ * [NEW] Immediately stops the automated API request loop.
+ */
+function stopApiRequestLoop() {
+    if (autoRetryState.isActive) {
+        autoRetryState.stopRequested = true;
+        if (fetchController) {
+            fetchController.abort(); // Abort any in-flight fetch request
+        }
+        console.log("User requested to stop the API request loop.");
+    }
+}
+
+/**
+ * [NEW] Core API fetch and stream processing logic.
+ * @param {object} requestBody - The full body for the fetch request.
+ * @param {string} apiKey - The API key to use for this request.
+ * @param {AbortSignal} abortSignal - The signal to abort the fetch request.
+ * @returns {Promise<string>} The accumulated bot reply.
+ */
+async function makeApiRequest(requestBody, apiKey, abortSignal) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal: abortSignal
+    });
+
+    if (!res.ok) {
+        const errorText = await res.text();
+        let errorMessage = 'API request failed';
+        try {
+            errorMessage = JSON.parse(errorText)?.error?.message || errorMessage;
+        } catch (e) {
+            errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
+    }
+    
+    const { botMessageContent } = autoRetryState.botMessageElements;
+    let accumulatedBotReply = '';
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    
+    while (true) {
+        if (abortSignal.aborted) {
+            reader.cancel();
+            throw new Error("Request stopped by user.");
+        }
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+            if (line.trim().startsWith('"text":')) {
+                const textPart = line.substring(line.indexOf(':') + 2).replace(/",?$/, '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                accumulatedBotReply += textPart;
+                if (botMessageContent) {
+                  botMessageContent.innerHTML = marked.parse(accumulatedBotReply + '<span class="typing-cursor"></span>');
+                  scrollToBottom('smooth');
+                }
+            }
+        }
+    }
+    return accumulatedBotReply;
+}
+
+/**
+ * [NEW] Cleans up the UI and state after the request loop finishes (success, fail, or stop).
+ */
+function cleanupAfterLoop() {
+    autoRetryState.isActive = false;
+    const text = DOMElements.messageInput.value.trim();
+    if (text || selectedFile) {
+        toggleSendButtonState('send');
+    } else {
+        toggleSendButtonState('mic');
+    }
+    fileContentForNextMessage = '';
+}
+
+/**
+ * [NEW & IMPROVED] The main automated loop for sending a request with a master timeout.
+ */
+async function executeApiRequestLoop() {
+    autoRetryState.isActive = true;
+    autoRetryState.stopRequested = false;
+    fetchController = new AbortController();
+    toggleSendButtonState('stop');
+
+    const MASTER_TIMEOUT = 90000; // 1.5 minutes
+    const startTime = Date.now();
+    let finalAccumulatedReply = '';
+    let success = false;
+    
+    while (Date.now() - startTime < MASTER_TIMEOUT && !autoRetryState.stopRequested) {
+        // This inner loop cycles through all available keys once.
+        const keyCount = apiKeyManager.keys.length;
+        if (keyCount === 0) {
+            DOMElements.statusRow.textContent = "No API keys available. Searching for new keys...";
+            if (await cancellableWait(10000)) break;
+            continue; // Re-start the while loop to check for new keys again
+        }
+
+        let keyCycleCompleted = false;
+        for (let i = 0; i < keyCount; i++) {
+            if (autoRetryState.stopRequested) break;
+
+            const currentKeyInfo = apiKeyManager.getCurrentKey();
+            
+            // ATTEMPT 1: Initial Request
+            DOMElements.statusRow.textContent = `Contacting server with Key #${currentKeyInfo.index + 1}...`;
+            try {
+                finalAccumulatedReply = await makeApiRequest(autoRetryState.requestPayload, currentKeyInfo.key, fetchController.signal);
+                success = true;
+                break;
+            } catch (err) {
+                if (err.name === 'AbortError') break;
+                console.error(`Initial attempt on key #${currentKeyInfo.index + 1} failed: ${err.message}`);
+            }
+
+            if (autoRetryState.stopRequested) break;
+
+            // ATTEMPT 2: Network Retry (Same Key)
+            if (await cancellableWait(5000, `Connection issue? Retrying with Key #${currentKeyInfo.index + 1} in`)) break;
+            
+            try {
+                finalAccumulatedReply = await makeApiRequest(autoRetryState.requestPayload, currentKeyInfo.key, fetchController.signal);
+                success = true;
+                break;
+            } catch (err) {
+                if (err.name === 'AbortError') break;
+                console.error(`Retry attempt on key #${currentKeyInfo.index + 1} failed: ${err.message}`);
+            }
+
+            if (autoRetryState.stopRequested) break;
+
+            // Both attempts failed, switch to the next key for the next iteration.
+            apiKeyManager.switchToNextKey();
+            if (i === keyCount - 1) {
+                keyCycleCompleted = true; // We've tried all keys in the current list
+            }
+        }
+
+        if (success || autoRetryState.stopRequested) {
+            break; // Exit the main while-loop
+        }
+
+        // If a full cycle of all known keys has failed, wait before starting over.
+        if (keyCycleCompleted) {
+            if (await cancellableWait(10000, `All keys are busy. Re-checking for an available key in`)) break;
+        }
+    }
+
+    // --- Finalize based on outcome ---
+    const { botMessageContent, botMessageGroup } = autoRetryState.botMessageElements;
+    if (success) {
+        apiKeyManager.recordUsage(apiKeyManager.getCurrentKey().id);
+        DOMElements.statusRow.textContent = '';
+        botMessageContent.innerHTML = marked.parse(finalAccumulatedReply);
+        botMessageContent.querySelectorAll('pre code').forEach(block => { try { hljs.highlightElement(block); } catch (e) {} });
+        addCopyButtons();
+        await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: finalAccumulatedReply, sender: 'bot', createdAt: new Date() });
+    } else {
+        if (autoRetryState.stopRequested) {
+            DOMElements.statusRow.textContent = 'Request stopped by user.';
+            botMessageGroup.remove();
+        } else {
+            const finalErrorMsg = "⚠️ Could not get your request. The server took too long to respond. Please try again later.";
+            DOMElements.statusRow.textContent = finalErrorMsg;
+            botMessageContent.innerHTML = finalErrorMsg;
+            if (state.sessionId) {
+                await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: finalErrorMsg, sender: 'bot', createdAt: new Date() });
+            }
+        }
+    }
+    
+    cleanupAfterLoop();
+}
+
+
+/**
+ * [MODIFIED] This function now only PREPARES the request and then starts the automated loop.
+ */
 async function sendMessage() {
+  if (autoRetryState.isActive) return;
+
   const text = sanitize(DOMElements.messageInput.value);
   if (!text && !selectedFile) return;
 
-  DOMElements.sendBtn.disabled = true;
-  DOMElements.sendBtn.classList.add('loading');
+  toggleSendButtonState('stop');
   DOMElements.statusRow.textContent = '';
   DOMElements.messageInput.value = '';
   DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
 
   let userMessageToSave = text;
-  let accumulatedBotReply = '';
-
+  
   try {
       if (selectedFile) {
-          DOMElements.statusRow.textContent = `Processing file: ${selectedFile.name}...`;
+          DOMElements.statusRow.textContent = `Processing file...`;
           try {
               fileContentForNextMessage = await parseFileContent(selectedFile);
           } catch (err) {
               console.error('File parsing failed:', err);
               DOMElements.statusRow.textContent = `Error reading file: ${err.message}`;
               resetFileInput();
-              DOMElements.sendBtn.disabled = false;
-              DOMElements.sendBtn.classList.remove('loading');
+              cleanupAfterLoop();
               return;
           }
-          const fileIndicator = `📄 **File Uploaded: ${selectedFile.name}**`;
-          userMessageToSave = text ? `${fileIndicator}\n\n${text}` : fileIndicator;
+          userMessageToSave = text ? `📄 **File Uploaded: ${selectedFile.name}**\n\n${text}` : `📄 **File Uploaded: ${selectedFile.name}**`;
           resetFileInput();
       }
 
       await loadConfigLive();
       if (!botConfig.active) {
           await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother bitch.', sender: 'bot', createdAt: new Date() });
+          cleanupAfterLoop();
           return;
       }
       const uSnapPre = await getDoc(doc(db, 'users', state.userId));
       if (uSnapPre.exists() && uSnapPre.data().blocked === true) {
           await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This user has been blocked by admin.', sender: 'bot', createdAt: new Date() });
+          cleanupAfterLoop();
           return;
       }
 
       const handleResult = await handleUserMessage(userMessageToSave);
-      if (handleResult && handleResult.blocked && !handleResult.matchedTrigger) return;
-
-      DOMElements.chatMessages.querySelector('#welcome-screen')?.remove();
+      if (handleResult && handleResult.blocked && !handleResult.matchedTrigger) {
+          cleanupAfterLoop();
+          return;
+      }
+      
       const botMessageGroup = document.createElement('div');
       botMessageGroup.className = 'message-group bot streaming';
       const botMessageEl = document.createElement('div');
@@ -884,152 +1114,36 @@ async function sendMessage() {
       botMessageContent.innerHTML = '<span class="typing-cursor"></span>';
       botMessageEl.appendChild(botMessageContent);
       botMessageGroup.appendChild(botMessageEl);
+      DOMElements.chatMessages.querySelector('#welcome-screen')?.remove();
       DOMElements.chatMessages.appendChild(botMessageGroup);
       scrollToBottom('smooth');
 
       const snaps = await getDocs(query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc')));
-
       let activePersonaInstructions = '';
       if (state.selectedPersonalityId) {
-          try {
-              const personaDoc = await getDoc(doc(db, 'personalities', state.selectedPersonalityId));
-              if (personaDoc.exists()) { activePersonaInstructions = personaDoc.data().persona || ''; }
-          } catch (e) { console.warn("Could not fetch selected personality, falling back to default.", e); }
+          const personaDoc = await getDoc(doc(db, 'personalities', state.selectedPersonalityId));
+          if (personaDoc.exists()) activePersonaInstructions = personaDoc.data().persona || '';
       }
-      if (!activePersonaInstructions) { activePersonaInstructions = botConfig.persona || ''; }
-      const formattingInstructions = `---
-**SYSTEM INSTRUCTIONS:**
-provide clear, readable, and well-structured answers. ALWAYS format your responses using Markdown. This is mandatory.
-- Use headings, bullet points, and numbered lists.
-- Use bold text for key terms.
-- Use code blocks for code snippets.
----`;
-      const combinedPersona = `${activePersonaInstructions}\n\n${formattingInstructions}`;
-      const systemInstruction = { role: 'user', parts: [{ text: combinedPersona }] };
-      const contents = [];
-      snaps.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.text) { contents.push({ role: data.sender === 'user' ? 'user' : 'model', parts: [{ text: data.text }] }); }
-      });
+      if (!activePersonaInstructions) activePersonaInstructions = botConfig.persona || '';
+      
+      // ✅ SYNTAX CORRECTION from previous version is maintained here
+      const systemInstruction = { role: 'user', parts: [{ text: `${activePersonaInstructions}\n\n---**SYSTEM INSTRUCTIONS:**\nprovide clear, readable, and well-structured answers. ALWAYS format your responses using Markdown. This is mandatory.\n- Use headings, bullet points, and numbered lists.\n- Use bold text for key terms.\n- Use code blocks for code snippets.\n---` }] };
+      const contents = snaps.docs.map(d => ({ role: d.data().sender === 'user' ? 'user' : 'model', parts: [{ text: d.data().text }] }));
+      
       if (fileContentForNextMessage) {
           const lastMessage = contents[contents.length - 1];
-          if (lastMessage && lastMessage.role === 'user') { lastMessage.parts[0].text = `[The user has attached a file named "${selectedFile?.name || 'file'}" with the following content. Analyze it and respond to their message.]\n\n---FILE CONTENT---\n${fileContentForNextMessage}\n---END FILE CONTENT---\n\nUser's Message: "${lastMessage.parts[0].text}"`; }
-      }
-      const requestBody = { contents: [systemInstruction, {role: 'model', parts: [{text: "Understood."}]}, ...contents] };
-
-      // ✅ --- [NEW] API KEY ROTATION LOGIC ---
-
-      if (apiKeyManager.keys.length === 0) {
-          throw new Error("No enabled API keys found. Please configure them in the admin panel.");
-      }
-
-      let responseSuccessful = false;
-      let attempts = 0;
-      const maxAttempts = apiKeyManager.keys.length;
-
-      while (!responseSuccessful && attempts < maxAttempts) {
-          attempts++;
-          const currentKeyInfo = apiKeyManager.getCurrentKey();
-          
-          const usage = apiKeyManager.getUsageInfo(currentKeyInfo.id);
-          if (usage.isRateLimited) {
-              DOMElements.statusRow.textContent = `Key rate limit reached. Next attempt in ${usage.timeLeft}s. Trying next key...`;
-              console.warn(`Key ${currentKeyInfo.index} is rate-limited. Waiting for ${usage.timeLeft}s. Switching to the next key.`);
-              apiKeyManager.switchToNextKey();
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              continue;
-          }
-
-          try {
-              DOMElements.statusRow.textContent = `Using API Key #${currentKeyInfo.index + 1}. Attempt ${attempts}/${maxAttempts}.`;
-              console.log(`Attempting request with key index: ${currentKeyInfo.index}`);
-
-              const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?key=${encodeURIComponent(currentKeyInfo.key)}`;
-              const res = await fetch(endpoint, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(requestBody)
-              });
-
-              if (!res.ok) {
-                  const errorText = await res.text();
-                  let errorMessage = 'API request failed';
-                  try {
-                      const errorData = JSON.parse(errorText);
-                      errorMessage = errorData?.error?.message || errorMessage;
-                  } catch (e) {
-                      errorMessage = errorText || errorMessage;
-                  }
-                  throw new Error(errorMessage);
-              }
-
-              const reader = res.body.getReader();
-              const decoder = new TextDecoder();
-              while (true) {
-                  const { value, done } = await reader.read();
-                  if (done) break;
-                  const chunk = decoder.decode(value);
-                  const lines = chunk.split('\n');
-                  for (const line of lines) {
-                      if (line.trim().startsWith('"text":')) {
-                          const textPart = line.substring(line.indexOf(':') + 2).replace(/",?$/, '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
-                          accumulatedBotReply += textPart;
-                          botMessageContent.innerHTML = marked.parse(accumulatedBotReply + '<span class="typing-cursor"></span>');
-                          scrollToBottom('smooth');
-                      }
-                  }
-              }
-              
-              apiKeyManager.recordUsage(currentKeyInfo.id);
-              responseSuccessful = true;
-
-          } catch (err) {
-              console.error(`Attempt ${attempts} with key index ${currentKeyInfo.index} failed:`, err.message);
-              
-              const isRotationError = err.message.toLowerCase().includes('api key not valid') ||
-                                    err.message.toLowerCase().includes('resource has been exhausted') ||
-                                    err.message.toLowerCase().includes('api request failed');
-
-              if (isRotationError && attempts < maxAttempts) {
-                  DOMElements.statusRow.textContent = `Key #${currentKeyInfo.index + 1} failed. Waiting 10s before trying next key...`;
-                  await new Promise(resolve => setTimeout(resolve, 10000));
-                  apiKeyManager.switchToNextKey();
-              } else {
-                  throw err; 
-              }
-          }
-      }
-
-      if (!responseSuccessful) {
-        throw new Error("All available API keys failed. Please check your configuration in the admin panel.");
+          if (lastMessage && lastMessage.role === 'user') lastMessage.parts[0].text = `[File: "${selectedFile?.name}"]\n---FILE CONTENT---\n${fileContentForNextMessage}\n---END FILE CONTENT---\n\nUser's Message: "${lastMessage.parts[0].text}"`;
       }
       
-      // ✅ --- END OF NEW LOGIC ---
-
-      botMessageContent.innerHTML = marked.parse(accumulatedBotReply);
-      botMessageContent.querySelectorAll('pre code').forEach(block => {
-        try { hljs.highlightElement(block); } catch (e) {}
-      });
-      addCopyButtons();
-
-      await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: accumulatedBotReply, sender: 'bot', createdAt: new Date() });
-      if (state.sessionWasPreviouslyBlocked && botConfig.showSubtleNotes && botConfig.blockReminderNote && !state.subtleNoteShown) {
-          await addSubtleNoteToSession(botConfig.blockReminderNote);
-          state.subtleNoteShown = true;
-      }
+      autoRetryState.requestPayload = { contents: [systemInstruction, {role: 'model', parts: [{text: "Understood."}]}, ...contents] };
+      autoRetryState.botMessageElements = { botMessageGroup, botMessageEl, botMessageContent };
+      
+      executeApiRequestLoop();
 
   } catch (err) {
-      console.error('sendMessage error', err);
-      const errorMessage = '⚠️ Error: ' + (err.message || 'Unknown error. Check the console.');
-      DOMElements.statusRow.textContent = errorMessage;
-      try {
-          if (state.sessionId) { await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: errorMessage, sender: 'bot', createdAt: new Date() }); }
-      } catch (e) { console.warn('failed to log error message', e); }
-  } finally {
-      DOMElements.sendBtn.disabled = false;
-      DOMElements.sendBtn.classList.remove('loading');
-      if (botConfig.active !== false) DOMElements.statusRow.textContent = '';
-      fileContentForNextMessage = '';
+      console.error('sendMessage preparation error', err);
+      DOMElements.statusRow.textContent = '⚠️ Error: ' + (err.message || 'Could not prepare message.');
+      cleanupAfterLoop();
   }
 }
 
@@ -1068,21 +1182,17 @@ async function clearHistory(){
   }catch(err){console.error('Clear history error:',err);alert(`Failed: ${err.message}`);}
 }
 
-// --- DYNAMIC MIC/SEND BUTTON & VOICE INPUT (UNCHANGED) ---
-const micIcon = DOMElements.sendBtn.querySelector('.mic-icon');
-const sendIcon = DOMElements.sendBtn.querySelector('.send-icon');
+// --- ✅ [MODIFIED] DYNAMIC MIC/SEND BUTTON & VOICE INPUT ---
 let recognition;
 DOMElements.messageInput.addEventListener('input', () => {
   autosize(DOMElements.messageInput);
+  if (autoRetryState.isActive) return;
+
   const text = DOMElements.messageInput.value.trim();
   if (text || selectedFile) {
-    micIcon.style.display = 'none';
-    sendIcon.style.display = 'block';
-    DOMElements.sendBtn.title = 'Send';
+    toggleSendButtonState('send');
   } else {
-    micIcon.style.display = 'block';
-    sendIcon.style.display = 'none';
-    DOMElements.sendBtn.title = 'Record Voice';
+    toggleSendButtonState('mic');
   }
 });
 if ('webkitSpeechRecognition' in window) {
@@ -1110,7 +1220,13 @@ if ('webkitSpeechRecognition' in window) {
     if (msg) sendMessage();
   };
 }
+
 DOMElements.sendBtn.addEventListener('click', () => {
+  if (autoRetryState.isActive) {
+      stopApiRequestLoop();
+      return;
+  }
+
   if (DOMElements.sendBtn.classList.contains('listening')) {
       if(recognition) recognition.stop();
       return;
