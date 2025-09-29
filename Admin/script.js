@@ -319,13 +319,8 @@ function subscribeConfig(){
 
 // ✅ [NEW] Cloudinary Upload Helper
 async function uploadToCloudinary(file, resourceType = 'video') {
-    // ⚠️ IMPORTANT: Replace these with your actual Cloudinary details.
     const CLOUDINARY_CLOUD_NAME = "dvjs45kft"; 
     const CLOUDINARY_UPLOAD_PRESET = "vevapvkv";
-
-    if (CLOUDINARY_CLOUD_NAME === "dvjs45kft" || CLOUDINARY_UPLOAD_PRESET === "vevapvkv") {
-        throw new Error("Cloudinary details are not configured in script5.js");
-    }
 
     const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`;
     const formData = new FormData();
@@ -339,6 +334,8 @@ async function uploadToCloudinary(file, resourceType = 'video') {
     });
 
     if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Cloudinary Error:", errorData);
         throw new Error('Failed to upload video to Cloudinary.');
     }
     
@@ -539,6 +536,7 @@ function closeEditModal() {
 
 cancelEditBtn.addEventListener('click', closeEditModal);
 closeEditModalOverlay.addEventListener('click', closeEditModal);
+
 removeVideoBtn.addEventListener('click', () => {
     if (confirm('Are you sure you want to remove the video for this personality?')) {
         videoShouldBeRemoved = true;
