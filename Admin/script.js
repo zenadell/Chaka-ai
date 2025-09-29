@@ -30,7 +30,7 @@ const loginEmail = document.getElementById('loginEmail');
 const loginPassword = document.getElementById('loginPassword');
 const toastContainer = document.getElementById('toastContainer');
 
-const views = ['dashboard','moderation','personalities','apikeys','config','users','sessions','chats','logs']; // MODIFIED
+const views = ['dashboard','moderation','personalities','apikeys','config','users','sessions','chats','logs'];
 const pageTitle = document.getElementById('pageTitle');
 const adminStatus = document.getElementById('adminStatus');
 const adminEmail = document.getElementById('adminEmail');
@@ -48,28 +48,29 @@ const blockedSessionsList = document.getElementById('blocked-sessions-list');
 // personalities refs
 const addPersonalityForm = document.getElementById('addPersonalityForm');
 const personalityNameInput = document.getElementById('personalityName');
-const personalityDescriptionInput = document.getElementById('personalityDescription'); // NEW
+const personalityDescriptionInput = document.getElementById('personalityDescription');
 const personalityPersonaInput = document.getElementById('personalityPersona');
+const personalityVideoFileInput = document.getElementById('personalityVideoFile'); // ✅ [NEW]
 const personalitiesList = document.getElementById('personalitiesList');
-
-// Edit personality modal refs
 const editPersonalityModal = document.getElementById('editPersonalityModal');
 const editPersonalityForm = document.getElementById('editPersonalityForm');
 const editPersonalityId = document.getElementById('editPersonalityId');
 const editPersonalityName = document.getElementById('editPersonalityName');
-const editPersonalityDescription = document.getElementById('editPersonalityDescription'); // NEW
+const editPersonalityDescription = document.getElementById('editPersonalityDescription');
 const editPersonalityPersona = document.getElementById('editPersonalityPersona');
+const editPersonalityVideoFileInput = document.getElementById('editPersonalityVideoFile'); // ✅ [NEW]
+const currentVideoStatus = document.getElementById('currentVideoStatus'); // ✅ [NEW]
+const removeVideoBtn = document.getElementById('removeVideoBtn'); // ✅ [NEW]
 const cancelEditBtn = document.getElementById('cancelEditBtn');
 const closeEditModalOverlay = document.getElementById('closeEditModalOverlay');
 
-
-// apikeys
+// apikeys refs
 const apiKeysList = document.getElementById('apiKeysList');
 const newKeyType = document.getElementById('newKeyType');
 const newKeyInput = document.getElementById('newKeyInput');
 const addApiKeyBtn = document.getElementById('addApiKeyBtn');
 
-// config
+// config refs
 const cfgBotName = document.getElementById('cfgBotName');
 const cfgAllowFile = document.getElementById('cfgAllowFile');
 const cfgBotBubble = document.getElementById('cfgBotBubble');
@@ -81,19 +82,28 @@ const uploadProfileBtn = document.getElementById('uploadProfileBtn');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
 const toggleActiveBtn = document.getElementById('toggleActiveBtn');
 const saveQuickConfig = document.getElementById('saveQuickConfig');
-// users
+
+// Prompt Suggestion DOM refs
+const promptSuggestionsList = document.getElementById('promptSuggestionsList');
+const addSuggestionBtn = document.getElementById('addSuggestionBtn');
+const newSuggestionIcon = document.getElementById('newSuggestionIcon');
+const newSuggestionTitle = document.getElementById('newSuggestionTitle');
+const newSuggestionPrompt = document.getElementById('newSuggestionPrompt');
+const addSuggestionSection = document.getElementById('addSuggestionSection');
+
+// users refs
 const usersList = document.getElementById('usersList');
 
-// sessions
+// sessions refs
 const sessionsUserSelect = document.getElementById('sessionsUserSelect');
 const sessionsList = document.getElementById('sessionsList');
 const sessionMessages = document.getElementById('sessionMessages');
-// live chats
+// live chats refs
 const liveUserSelect = document.getElementById('liveUserSelect');
 const liveSessionSelect = document.getElementById('liveSessionSelect');
 const watchBtn = document.getElementById('watchBtn');
 const liveChatArea = document.getElementById('liveChatArea');
-// logs
+// logs refs
 const logsList = document.getElementById('logsList');
 
 const signOutBtn = document.getElementById('signOutBtn');
@@ -106,6 +116,7 @@ let chatsUnsub = null;
 let latestConfig = null;
 let sessionsUnsubs = [];
 let personalitiesUnsub = null;
+let videoShouldBeRemoved = false; // ✅ [NEW] State for video removal
 
 // ---------- UI HELPERS ----------
 function showToast(message, type = 'success') {
@@ -300,11 +311,43 @@ function subscribeConfig(){
     cfgTheme.value = latestConfig.themeColor || '';
     cfgActive.value = (latestConfig.active !== false) ? 'true' : 'false';
     toggleActiveBtn.textContent = (latestConfig.active !== false) ? 'Deactivate Bot' : 'Activate Bot';
-    renderApiKeys(latestConfig.apiKeys || {});
+    
+    renderApiKeys(latestConfig.apiKeys || {}, latestConfig.liveStatus || {});
+    renderPromptSuggestions(latestConfig.promptSuggestions || []);
   });
 }
 
-// ----- ⭐️ PERSONALITIES LOGIC (UPDATED & CORRECTED) ⭐️ -----
+// ✅ [NEW] Cloudinary Upload Helper
+async function uploadToCloudinary(file, resourceType = 'video') {
+    // ⚠️ IMPORTANT: Replace these with your actual Cloudinary details.
+    const CLOUDINARY_CLOUD_NAME = "dvjs45kft"; 
+    const CLOUDINARY_UPLOAD_PRESET = "vevapvkv";
+
+    if (CLOUDINARY_CLOUD_NAME === "dvjs45kft" || CLOUDINARY_UPLOAD_PRESET === "vevapvkv") {
+        throw new Error("Cloudinary details are not configured in script5.js");
+    }
+
+    const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+    showToast('Uploading video...', 'success');
+    const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to upload video to Cloudinary.');
+    }
+    
+    const data = await response.json();
+    return data.secure_url;
+}
+
+
+// ----- ⭐️ PERSONALITIES LOGIC (MODIFIED) ⭐️ -----
 
 async function migrateOriginalPersona() {
     try {
@@ -331,8 +374,6 @@ async function migrateOriginalPersona() {
                     createdAt: serverTimestamp()
                 });
                 
-                // Only remove the old persona field if it's not the only one.
-                // If it IS the only one, we leave it, because the client needs it.
                 if (!isFirstPersonality) {
                     await updateDoc(configRef, { persona: deleteField() });
                 }
@@ -345,7 +386,6 @@ async function migrateOriginalPersona() {
         console.error("Persona migration failed:", e);
     }
 }
-
 
 function subscribePersonalities() {
     const q = query(collection(db, 'personalities'), orderBy('createdAt', 'desc'));
@@ -382,7 +422,8 @@ function subscribePersonalities() {
                 withLoader(e.currentTarget, () => handleSetDefaultPersonality(personality.id));
             });
             card.querySelector('.edit-btn').addEventListener('click', () => {
-                openEditModal(personality.id, personality.name, personality.persona, personality.description || '');
+                // ✅ [MODIFIED] Pass videoUrl to the edit modal
+                openEditModal(personality.id, personality.name, personality.persona, personality.description || '', personality.videoUrl || null);
             });
             card.querySelector('.delete-btn').addEventListener('click', (e) => {
                 withLoader(e.currentTarget, () => handleDeletePersonality(personality.id, personality.isDefault));
@@ -398,10 +439,17 @@ addPersonalityForm.addEventListener('submit', (e) => {
         const name = personalityNameInput.value.trim();
         const description = personalityDescriptionInput.value.trim();
         const persona = personalityPersonaInput.value.trim();
+        const videoFile = personalityVideoFileInput.files[0]; // ✅ [NEW] Get the video file
 
         if (!name || !persona) {
             showToast('Name and Persona are required.', 'error');
             return;
+        }
+        
+        let videoUrl = null;
+        if (videoFile) {
+            // ✅ [NEW] Upload video if present
+            videoUrl = await uploadToCloudinary(videoFile, 'video');
         }
 
         const personalitiesRef = collection(db, 'personalities');
@@ -411,13 +459,13 @@ addPersonalityForm.addEventListener('submit', (e) => {
             name,
             description,
             persona,
+            videoUrl, // ✅ [NEW] Add videoUrl to the document
             isDefault: currentPersonalities.empty,
             createdAt: serverTimestamp()
         };
 
         await addDoc(personalitiesRef, newPersonality);
 
-        // If this is the very first personality, also set it in the main config
         if (currentPersonalities.empty) {
             const configRef = doc(db, 'config', 'global');
             await setDoc(configRef, { persona: persona }, { merge: true });
@@ -432,21 +480,17 @@ async function handleSetDefaultPersonality(docId) {
     const batch = writeBatch(db);
     const personalitiesRef = collection(db, 'personalities');
     
-    // 1. Update isDefault flags in the 'personalities' collection
     const snapshot = await getDocs(personalitiesRef);
     snapshot.forEach(docSnap => {
         batch.update(docSnap.ref, { isDefault: (docSnap.id === docId) });
     });
     await batch.commit();
 
-    // 2. [CORRECTION] Get the new default persona and save its
-    //    text to the main config for the client app to use.
     const newDefaultRef = doc(db, 'personalities', docId);
     const newDefaultSnap = await getDoc(newDefaultRef);
     if (newDefaultSnap.exists()) {
         const personalityData = newDefaultSnap.data();
         const configRef = doc(db, 'config', 'global');
-        // This puts the 'persona' field back where the client expects it.
         await setDoc(configRef, {
             persona: personalityData.persona 
         }, { merge: true });
@@ -454,7 +498,6 @@ async function handleSetDefaultPersonality(docId) {
 
     showToast('Default personality updated!');
 }
-
 
 async function handleDeletePersonality(docId, isDefault) {
     if (isDefault) {
@@ -467,11 +510,25 @@ async function handleDeletePersonality(docId, isDefault) {
     }
 }
 
-function openEditModal(id, name, persona, description) {
+// ✅ [MODIFIED] Function to open the edit modal now handles video URL
+function openEditModal(id, name, persona, description, videoUrl) {
     editPersonalityId.value = id;
     editPersonalityName.value = name;
     editPersonalityPersona.value = persona;
     editPersonalityDescription.value = description;
+    
+    // Reset video state
+    videoShouldBeRemoved = false;
+    editPersonalityVideoFileInput.value = ''; // Clear file input
+
+    if (videoUrl) {
+        currentVideoStatus.innerHTML = `Current: <a href="${videoUrl}" target="_blank" rel="noopener">View Video</a>`;
+        removeVideoBtn.classList.remove('hidden');
+    } else {
+        currentVideoStatus.textContent = 'No preview video uploaded.';
+        removeVideoBtn.classList.add('hidden');
+    }
+    
     editPersonalityModal.classList.remove('hidden');
 }
 
@@ -482,6 +539,14 @@ function closeEditModal() {
 
 cancelEditBtn.addEventListener('click', closeEditModal);
 closeEditModalOverlay.addEventListener('click', closeEditModal);
+removeVideoBtn.addEventListener('click', () => {
+    if (confirm('Are you sure you want to remove the video for this personality?')) {
+        videoShouldBeRemoved = true;
+        currentVideoStatus.textContent = 'Video will be removed on save.';
+        removeVideoBtn.classList.add('hidden');
+        showToast('Video marked for removal.', 'success');
+    }
+});
 
 editPersonalityForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -491,6 +556,7 @@ editPersonalityForm.addEventListener('submit', (e) => {
         const name = editPersonalityName.value.trim();
         const description = editPersonalityDescription.value.trim();
         const persona = editPersonalityPersona.value.trim();
+        const newVideoFile = editPersonalityVideoFileInput.files[0]; // ✅ [NEW] Check for a new video file
 
         if (!id || !name || !persona) {
             showToast('Name and Persona are required.', 'error');
@@ -498,10 +564,18 @@ editPersonalityForm.addEventListener('submit', (e) => {
         }
         
         const personalityRef = doc(db, 'personalities', id);
-        await updateDoc(personalityRef, { name, description, persona });
+        const updateData = { name, description, persona };
 
-        // [CORRECTION] Check if the personality we just edited was the default one.
-        // If it was, we must also update the main config's 'persona' field.
+        if (videoShouldBeRemoved) {
+             // ✅ [NEW] Handle video removal
+            updateData.videoUrl = deleteField();
+        } else if (newVideoFile) {
+            // ✅ [NEW] Handle new video upload
+            updateData.videoUrl = await uploadToCloudinary(newVideoFile, 'video');
+        }
+
+        await updateDoc(personalityRef, updateData);
+
         const personalitySnap = await getDoc(personalityRef);
         if (personalitySnap.exists() && personalitySnap.data().isDefault) {
             const configRef = doc(db, 'config', 'global');
@@ -514,7 +588,6 @@ editPersonalityForm.addEventListener('submit', (e) => {
 });
 
 // ----- END PERSONALITIES LOGIC -----
-
 
 async function saveConfig(){
   const ref = doc(db, 'config', 'global');
@@ -540,8 +613,13 @@ toggleActiveBtn.addEventListener('click', (e) => withLoader(e.currentTarget, asy
 }));
 saveQuickConfig.addEventListener('click', (e) => withLoader(e.currentTarget, async () => {
   const ref = doc(db, 'config', 'global');
-  await setDoc(ref, { themeColor: cfgTheme.value.trim() }, { merge: true });
-  showToast('Theme saved!');
+  const appearanceSettings = {
+      themeColor: cfgTheme.value.trim(),
+      botBubbleColor: cfgBotBubble.value.trim(),
+      userBubbleColor: cfgUserBubble.value.trim()
+  }
+  await setDoc(ref, appearanceSettings, { merge: true });
+  showToast('Appearance saved!');
 }));
 uploadProfileBtn.addEventListener('click', (e) => withLoader(e.currentTarget, async () => {
   const f = profileImageFile.files[0];
@@ -555,20 +633,66 @@ uploadProfileBtn.addEventListener('click', (e) => withLoader(e.currentTarget, as
   showToast('Image uploaded!');
 }));
 
-
-function renderApiKeys(obj){
+function renderApiKeys(obj, liveStatus = {}){
   apiKeysList.innerHTML = '';
-  Object.entries(obj || {}).forEach(([id, k])=>{
+  const activeKeyId = liveStatus.activeApiKeyId;
+  const usageMap = liveStatus.apiKeyUsage || {};
+  const failuresMap = liveStatus.apiKeyFailures || {};
+  const oneHourAgo = Date.now() - 3600 * 1000;
+
+  const sortedKeys = Object.entries(obj || {}).sort(([idA, keyA], [idB, keyB]) => {
+      const aIsActive = idA === activeKeyId;
+      const bIsActive = idB === activeKeyId;
+      if (aIsActive) return -1;
+      if (bIsActive) return 1;
+      
+      const aEnabled = keyA.enabled !== false;
+      const bEnabled = keyB.enabled !== false;
+      if (aEnabled && !bEnabled) return -1;
+      if (!aEnabled && bEnabled) return 1;
+
+      const aLastUsed = usageMap[idA]?.seconds || 0;
+      const bLastUsed = usageMap[idB]?.seconds || 0;
+      return bLastUsed - aLastUsed;
+  });
+
+  if (sortedKeys.length === 0) {
+      apiKeysList.innerHTML = '<p class="small" style="padding: 1rem;">No API keys have been added yet.</p>';
+      return;
+  }
+  
+  sortedKeys.forEach(([id, k])=>{
     const row = document.createElement('div');
     row.className = 'api-row';
-    row.innerHTML = `<input type="text" value="${(k.key||'')}" readonly />
+    const isActive = activeKeyId === id;
+    const lastUsed = usageMap[id];
+    const lastUsedStr = lastUsed ? `Last used: ${new Date(lastUsed.seconds * 1000).toLocaleString()}` : 'Never used';
+
+    const failureTimestamp = failuresMap[id];
+    let hasFailedRecently = false;
+    if (failureTimestamp && (failureTimestamp.toMillis() > oneHourAgo)) {
+        hasFailedRecently = true;
+    }
+
+    row.innerHTML = `
+      <div class="api-key-info">
+        <input type="text" value="${(k.key||'')}" readonly />
+        <div class="api-key-meta">
+            <span class="small">${lastUsedStr}</span>
+            ${isActive ? '<span class="status-badge active">In Use</span>' : ''}
+            ${hasFailedRecently && !isActive ? '<span class="status-badge failed">Failed Recently</span>' : ''}
+        </div>
+      </div>
       <select data-id-type="${id}"><option>text</option><option>image</option><option>tts</option><option>code</option></select>
       <label class="row" style="cursor:pointer"><input type="checkbox" data-enabled="${id}" ${k.enabled!==false? 'checked':''}/> enabled</label>
-      <button data-del="${id}" class="btn ghost danger">Delete</button>`;
+      <button data-del="${id}" class="btn ghost danger">Delete</button>
+    `;
+
     apiKeysList.appendChild(row);
     row.querySelector('select').value = k.type || 'text';
     row.querySelector(`[data-del]`).addEventListener('click', () => removeApiKey(id));
     row.querySelector(`[data-enabled]`).addEventListener('change', (e) => toggleApiKeyEnabled(id, e.target.checked));
+    row.querySelector(`select`).addEventListener('change', (e) => updateApiKeyType(id, e.target.value));
   });
 }
 
@@ -584,16 +708,20 @@ addApiKeyBtn.addEventListener('click', (e) => withLoader(e.currentTarget, async 
   newKeyInput.value = '';
   showToast('API Key added.');
 }));
+
 async function removeApiKey(id){
-  if (!confirm('Delete this API key?')) return;
+  if (!confirm('Are you sure you want to delete this API key? This cannot be undone.')) return;
   const ref = doc(db, 'config', 'global');
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return;
-  const cfg = snap.data() || {};
-  if (!cfg.apiKeys || !cfg.apiKeys[id]) return;
-  delete cfg.apiKeys[id];
-  await setDoc(ref, { apiKeys: cfg.apiKeys }, { merge: true });
-  showToast('API Key removed.', 'error');
+  const updatePayload = {
+      [`apiKeys.${id}`]: deleteField()
+  };
+  try {
+      await updateDoc(ref, updatePayload);
+      showToast('API Key removed.', 'error');
+  } catch (error) {
+      console.error("Failed to delete API key:", error);
+      showToast('Error deleting key: ' + error.message, 'error');
+  }
 }
 
 async function toggleApiKeyEnabled(id, enabled){
@@ -603,6 +731,151 @@ async function toggleApiKeyEnabled(id, enabled){
   await updateDoc(ref, update);
   showToast(`Key ${enabled ? 'enabled' : 'disabled'}.`);
 }
+
+async function updateApiKeyType(id, type) {
+    const ref = doc(db, 'config', 'global');
+    const update = {};
+    update[`apiKeys.${id}.type`] = type;
+    await updateDoc(ref, update);
+    showToast(`Key type updated to ${type}.`);
+}
+
+// --- ⭐ [NEW/IMPROVED] PROMPT SUGGESTION LOGIC ---
+function renderPromptSuggestions(suggestions = []) {
+    promptSuggestionsList.innerHTML = '';
+    
+    suggestions.forEach((suggestion, index) => {
+        const row = document.createElement('div');
+        row.className = 'suggestion-row';
+        row.dataset.index = index;
+        
+        row.innerHTML = `
+            <div class="suggestion-details">
+                <div class="suggestion-header">
+                    <span class="suggestion-icon-display">${suggestion.icon || '▫️'}</span>
+                    <span class="suggestion-title-display">${suggestion.title}</span>
+                </div>
+                <p class="suggestion-prompt-display">${suggestion.prompt}</p>
+            </div>
+
+            <div class="suggestion-inputs">
+                <div class="row">
+                    <input type="text" class="suggestion-icon-input" value="${suggestion.icon || ''}" placeholder="Icon" style="width: 80px;">
+                    <input type="text" class="suggestion-title-input" value="${suggestion.title || ''}" placeholder="Title" style="flex-grow: 1;">
+                </div>
+                <textarea class="suggestion-prompt-input" placeholder="Prompt...">${suggestion.prompt || ''}</textarea>
+            </div>
+
+            <div class="suggestion-actions">
+                <button class="btn ghost edit-save-btn">Edit</button>
+                <button class="btn ghost danger delete-suggestion-btn">Delete</button>
+            </div>
+        `;
+        promptSuggestionsList.appendChild(row);
+    });
+
+    // Add event listeners after rendering all rows
+    promptSuggestionsList.querySelectorAll('.suggestion-row').forEach(row => {
+        const index = parseInt(row.dataset.index);
+        const editSaveBtn = row.querySelector('.edit-save-btn');
+        const deleteBtn = row.querySelector('.delete-suggestion-btn');
+
+        editSaveBtn.addEventListener('click', () => {
+            handleEditSaveSuggestion(row, index, editSaveBtn);
+        });
+        
+        deleteBtn.addEventListener('click', (e) => {
+             withLoader(e.currentTarget, () => handleDeleteSuggestion(index));
+        });
+    });
+    
+    addSuggestionSection.style.display = suggestions.length >= 6 ? 'none' : 'block';
+}
+
+function handleEditSaveSuggestion(row, index, button) {
+    const isEditing = row.classList.contains('editing');
+
+    if (isEditing) {
+        // --- SAVE LOGIC ---
+        const icon = row.querySelector('.suggestion-icon-input').value.trim();
+        const title = row.querySelector('.suggestion-title-input').value.trim();
+        const prompt = row.querySelector('.suggestion-prompt-input').value.trim();
+
+        if (!title || !prompt) {
+            showToast('Title and Prompt are required.', 'error');
+            return;
+        }
+
+        // Update local state first for instant UI feedback
+        latestConfig.promptSuggestions[index] = { icon, title, prompt };
+        
+        // Update the read-only display before saving
+        row.querySelector('.suggestion-icon-display').textContent = icon || '▫️';
+        row.querySelector('.suggestion-title-display').textContent = title;
+        row.querySelector('.suggestion-prompt-display').textContent = prompt;
+
+        // Save to Firestore
+        saveSuggestionsToFirestore(latestConfig.promptSuggestions);
+        showToast('Suggestion saved!');
+
+        // Switch back to read-only mode
+        row.classList.remove('editing');
+        button.textContent = 'Edit';
+        button.classList.remove('primary'); // Optional: make save button stand out
+
+    } else {
+        // --- EDIT LOGIC ---
+        // Switch to edit mode
+        row.classList.add('editing');
+        button.textContent = 'Save';
+        button.classList.add('primary');
+    }
+}
+
+async function handleDeleteSuggestion(index) {
+    if (!confirm('Are you sure you want to delete this suggestion?')) return;
+    const currentSuggestions = latestConfig.promptSuggestions || [];
+    currentSuggestions.splice(index, 1);
+    await saveSuggestionsToFirestore(currentSuggestions);
+    showToast('Suggestion removed.', 'error');
+}
+
+addSuggestionBtn.addEventListener('click', (e) => {
+    withLoader(e.currentTarget, async () => {
+        const icon = newSuggestionIcon.value.trim();
+        const title = newSuggestionTitle.value.trim();
+        const prompt = newSuggestionPrompt.value.trim();
+
+        if (!title || !prompt) {
+            showToast('Title and Prompt are required.', 'error');
+            return;
+        }
+
+        const currentSuggestions = latestConfig.promptSuggestions || [];
+        if (currentSuggestions.length >= 6) {
+            showToast('Maximum of 6 suggestions allowed.', 'error');
+            return;
+        }
+
+        currentSuggestions.push({ icon, title, prompt });
+        await saveSuggestionsToFirestore(currentSuggestions);
+
+        newSuggestionIcon.value = '';
+        newSuggestionTitle.value = '';
+        newSuggestionPrompt.value = '';
+        showToast('Suggestion added.');
+    });
+});
+
+async function saveSuggestionsToFirestore(suggestions) {
+    const ref = doc(db, 'config', 'global');
+    try {
+        await setDoc(ref, { promptSuggestions: suggestions }, { merge: true });
+    } catch (error) {
+        showToast(`Failed to save suggestions: ${error.message}`, 'error');
+    }
+}
+
 
 function subscribeUsers(){
   const ref = collection(db, 'users');
