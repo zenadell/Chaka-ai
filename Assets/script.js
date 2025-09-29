@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
   getFirestore, doc, getDoc, setDoc, collection, addDoc, onSnapshot,
-  query, orderBy, serverTimestamp, updateDoc, getDocs, writeBatch, where, limit
+  query, orderBy, serverTimestamp, updateDoc, getDocs, writeBatch, where, limit, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 const firebaseConfig = {
   apiKey: "AIzaSyCBBm3pHDVgUYs2BTzwVwtTwC-cOAFjKWo",
@@ -16,7 +16,13 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// --- ⭐ DOM ELEMENTS (UNCHANGED) ---
+// --- PDF.js WORKER SETUP (UNCHANGED) ---
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
+}
+
+
+// --- DOM ELEMENTS (UNCHANGED) ---
 const DOMElements = {
   body: document.body,
   sidebar: document.getElementById('sidebar'),
@@ -38,10 +44,28 @@ const DOMElements = {
   sendBtn: document.getElementById('send-btn'),
   statusRow: document.getElementById('status-row'),
   themeToggle: document.getElementById('theme-toggle'),
-  themeIcon: document.getElementById('theme-icon')
+  themeIcon: document.getElementById('theme-icon'),
+  apiStatusRow: document.getElementById('api-status-row'),
+  personalityPreviewModal: document.getElementById('personality-preview-modal'),
+  previewPersonalityName: document.getElementById('preview-personality-name'),
+  previewVideo: document.getElementById('preview-video'),
+  confirmPersonalitySwitchBtn: document.getElementById('confirm-personality-switch-btn'),
+  cancelPersonalitySwitchBtn: document.getElementById('cancel-personality-switch-btn'),
+  tourOverlay: document.getElementById('tour-overlay'),
+  tourSpotlight: document.querySelector('.tour-spotlight'),
+  tourTooltip: document.querySelector('.tour-tooltip'),
+  tourTitle: document.getElementById('tour-title'),
+  tourText: document.getElementById('tour-text'),
+  tourPrevBtn: document.getElementById('tour-prev-btn'),
+  tourNextBtn: document.getElementById('tour-next-btn'),
+  tourFinishBtn: document.getElementById('tour-finish-btn'),
+  tourStepCounter: document.getElementById('tour-step-counter'),
+  welcomeTourModal: document.getElementById('welcome-tour-modal'),
+  startTourBtn: document.getElementById('start-tour-btn'),
+  skipTourBtn: document.getElementById('skip-tour-btn'),
 };
 
-// --- ⭐ APPLICATION STATE (UNCHANGED) ---
+// --- APPLICATION STATE (UNCHANGED) ---
 let state = {
   userId: null,
   sessionId: null,
@@ -59,7 +83,7 @@ let state = {
   subtleNoteShown: false
 };
 
-// --- ⭐ STATE FOR AUTOMATED API RETRY PROCESS (UNCHANGED from previous version) ---
+// --- STATE FOR AUTOMATED API RETRY PROCESS (UNCHANGED) ---
 let autoRetryState = {
     isActive: false,
     stopRequested: false,
@@ -68,28 +92,10 @@ let autoRetryState = {
 };
 let fetchController;
 
-// --- GLOBAL STATE FOR FILE UPLOAD (UNCHANGED) ---
-let selectedFile = null;
-let fileContentForNextMessage = '';
+// --- GLOBAL STATE FOR MULTIPLE FILE UPLOADS (UNCHANGED) ---
+let selectedFiles = []; 
 
-// --- resetFileInput FUNCTION (UNCHANGED) ---
-function resetFileInput() {
-  selectedFile = null;
-  const filePreviewContainer = document.getElementById('file-preview-container');
-  const filePreviewName = document.getElementById('file-preview-name');
-  const fileUploadInput = document.getElementById('file-upload');
-
-  if (filePreviewContainer) {
-      filePreviewContainer.style.display = 'none';
-      DOMElements.composer.classList.remove('file-attached');
-  }
-  if (filePreviewName) filePreviewName.textContent = '';
-  if (fileUploadInput) fileUploadInput.value = '';
-
-  DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
-
+// --- botConfig (UNCHANGED) ---
 let botConfig = {
   botName: "AI Bot",
   themeColor: "#4F46E5",
@@ -102,10 +108,11 @@ let botConfig = {
   active: true,
   profileImage: "",
   showSubtleNotes: true,
-  blockReminderNote: ""
+  blockReminderNote: "",
+  promptSuggestions: []
 };
 
-// --- ⭐ API KEY MANAGEMENT (UNCHANGED from previous version) ---
+// --- API KEY MANAGEMENT (UNCHANGED) ---
 const apiKeyManager = {
     keys: [],
     currentIndex: 0,
@@ -154,12 +161,37 @@ const apiKeyManager = {
     }
 };
 
+// --- LIVE STATUS REPORTING (UNCHANGED) ---
+async function updateLiveStatus(keyId) {
+    if (!db) return;
+    try {
+        const configRef = doc(db, 'config', 'global');
+        const updatePayload = {
+            'liveStatus.activeApiKeyId': keyId,
+            [`liveStatus.apiKeyUsage.${keyId}`]: serverTimestamp()
+        };
+        await updateDoc(configRef, updatePayload);
+    } catch (e) {
+        console.warn("Could not update live API key status", e);
+    }
+}
+async function reportKeyFailure(keyId) {
+    if (!db) return;
+    try {
+        const configRef = doc(db, 'config', 'global');
+        await updateDoc(configRef, {
+            [`liveStatus.apiKeyFailures.${keyId}`]: serverTimestamp()
+        });
+    } catch (e) { console.warn("Could not report key failure", e); }
+}
+
 // --- UTILITIES (UNCHANGED) ---
 const sanitize = (s) => typeof s === 'string' ? s.trim() : '';
 const autosize = (el) => { el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 150)}px`; };
 const parseBool = (v) => v === true || v === 'true';
 const scrollToBottom = (behavior = 'auto') => { DOMElements.chatMessages.scrollTo({ top: DOMElements.chatMessages.scrollHeight, behavior }); };
-const parseFileContent = (file) => {
+
+const parseTextFile = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => resolve(event.target.result);
@@ -167,6 +199,90 @@ const parseFileContent = (file) => {
     reader.readAsText(file);
   });
 };
+
+const parseImageFile = (file) => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(event.target.result.split(',')[1]);
+        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(file);
+    });
+};
+
+const parsePdfFile = (file) => {
+  return new Promise((resolve, reject) => {
+    if (!window.pdfjsLib) {
+        return reject(new Error("PDF.js library is not loaded."));
+    }
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const pdfData = new Uint8Array(event.target.result);
+        const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          fullText += textContent.items.map(item => item.str).join(' ') + '\n';
+        }
+        resolve(fullText);
+      } catch (error) {
+        console.error("Error parsing PDF: ", error);
+        reject('Could not read the content of the PDF file.');
+      }
+    };
+    reader.onerror = (error) => reject(error);
+    reader.readAsArrayBuffer(file);
+  });
+};
+
+
+// --- API STATUS UI HELPER (UNCHANGED) ---
+let apiStatusTimer;
+function showApiStatus(message, duration = 4000) {
+    if (!DOMElements.apiStatusRow) return;
+    clearTimeout(apiStatusTimer);
+    DOMElements.apiStatusRow.textContent = message;
+    DOMElements.apiStatusRow.classList.remove('hidden');
+    if (duration > 0) {
+        apiStatusTimer = setTimeout(() => {
+            DOMElements.apiStatusRow.classList.add('hidden');
+        }, duration);
+    }
+}
+
+
+// --- FILE INPUT MANAGEMENT FUNCTIONS (UNCHANGED) ---
+function updateFileInputUI() {
+    const filePreviewContainer = document.getElementById('file-preview-container');
+    const hasFiles = selectedFiles.length > 0;
+
+    filePreviewContainer.style.display = hasFiles ? 'flex' : 'none';
+    DOMElements.composer.classList.toggle('file-attached', hasFiles);
+
+    DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function removeFile(fileId) {
+    selectedFiles = selectedFiles.filter(f => f.id !== fileId);
+    const fileElement = document.getElementById(`file-preview-${fileId}`);
+    if (fileElement) {
+        fileElement.remove();
+    }
+    updateFileInputUI();
+}
+
+function resetFileInput() {
+    selectedFiles = [];
+    const filePreviewContainer = document.getElementById('file-preview-container');
+    const fileUploadInput = document.getElementById('file-upload');
+
+    if (filePreviewContainer) filePreviewContainer.innerHTML = '';
+    if (fileUploadInput) fileUploadInput.value = '';
+
+    updateFileInputUI();
+}
+
 
 // --- THEME & UI HELPERS (UNCHANGED) ---
 const applyTheme = (theme) => {
@@ -210,15 +326,13 @@ const applyConfigToUI = () => {
   DOMElements.botAvatar.src = botConfig.profileImage || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   document.documentElement.style.setProperty('--accent-light', botConfig.themeColor || '#4F46E5');
   document.documentElement.style.setProperty('--accent-dark', botConfig.themeColor ? `${botConfig.themeColor}aa` : '#818CF8');
-
   DOMElements.composerActionsBtn.style.display = botConfig.allowFileUpload ? 'flex' : 'none';
-
   DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
   DOMElements.sendBtn.disabled = false;
 };
 
 
-// --- ✅ [CORRECTED] HELPER FUNCTIONS FOR CHAT CONTINUATION (UNCHANGED FROM YOUR SCRIPT) ---
+// --- HELPER FUNCTIONS FOR CHAT CONTINUATION (UNCHANGED) ---
 async function findLastSessionForPersonality(personalityId) {
     if (!state.userId || !personalityId) return null;
     try {
@@ -239,70 +353,99 @@ async function findLastSessionForPersonality(personalityId) {
         return null;
     }
 }
-
 function showContinuationPrompt(personalityId, lastSessionId) {
     const modal = document.getElementById('continuation-modal');
     const continueBtn = document.getElementById('continue-chat-btn');
     const newChatBtn = document.getElementById('new-chat-modal-btn');
-    const cancelBtn = document.getElementById('cancel-modal-btn');
-
+    const cancelBtn = modal.querySelector('.modal-close-btn');
     modal.classList.remove('hidden');
-
+    DOMElements.overlay.classList.add('show');
     const updateStateAndUI = () => {
         state.selectedPersonalityId = personalityId;
         localStorage.setItem('selectedPersonalityId', personalityId);
-        
         document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
         const newItem = DOMElements.personalityList.querySelector(`.personality-item[data-id="${personalityId}"]`);
         if (newItem) newItem.classList.add('active');
     };
-
     const cleanup = () => {
         modal.classList.add('hidden');
         DOMElements.overlay.classList.remove('show');
-        modal.removeEventListener('click', overlayClickHandler);
     };
-
     const continueHandler = () => {
         updateStateAndUI();
         loadSessionById(lastSessionId);
         cleanup();
     };
-
     const newChatHandler = () => {
         updateStateAndUI();
-        startNewChat(); 
+        startNewChat();
         cleanup();
     };
-    
-    const cancelHandler = () => {
-        cleanup();
-    };
-
-    const overlayClickHandler = (event) => {
-        if (event.target === modal) {
-            cancelHandler();
-        }
-    };
-    
+    const cancelHandler = () => { cleanup(); };
     continueBtn.addEventListener('click', continueHandler, { once: true });
     newChatBtn.addEventListener('click', newChatHandler, { once: true });
     cancelBtn.addEventListener('click', cancelHandler, { once: true });
-    
-    modal.addEventListener('click', overlayClickHandler);
 }
 
-// --- ✅ [CORRECTED] PERSONALITY SELECTION LOGIC (UNCHANGED FROM YOUR SCRIPT) ---
+// --- PERSONALITY VIDEO PREVIEW LOGIC (UNCHANGED) ---
+async function showPersonalityPreview(personality) {
+    DOMElements.previewPersonalityName.textContent = `Preview: ${personality.name}`;
+    DOMElements.previewVideo.src = personality.videoUrl;
+    DOMElements.personalityPreviewModal.classList.remove('hidden');
+    DOMElements.overlay.classList.add('show');
+    DOMElements.previewVideo.play().catch(e => console.warn("Video autoplay failed:", e));
+
+    return new Promise((resolve) => {
+        const cleanup = (result) => {
+            DOMElements.personalityPreviewModal.classList.add('hidden');
+            DOMElements.previewVideo.pause();
+            DOMElements.previewVideo.src = '';
+            
+            DOMElements.confirmPersonalitySwitchBtn.onclick = null;
+            DOMElements.cancelPersonalitySwitchBtn.onclick = null;
+            DOMElements.personalityPreviewModal.querySelector('.modal-close-btn').onclick = null;
+
+            resolve(result);
+        };
+        
+        DOMElements.confirmPersonalitySwitchBtn.onclick = () => cleanup(true);
+        DOMElements.cancelPersonalitySwitchBtn.onclick = () => cleanup(false);
+        DOMElements.personalityPreviewModal.querySelector('.modal-close-btn').onclick = () => cleanup(false);
+    });
+}
+
+// --- ✅ [MODIFIED] Function to mark a personality as seen by the user ---
+async function markPersonalityAsSeen(personalityId) {
+    if (!state.userId || !personalityId) return;
+    try {
+        const userRef = doc(db, 'users', state.userId);
+        // Atomically add the new personalityId to the 'seenPersonalities' array.
+        // This is more robust than reading, modifying, and writing the array back.
+        await updateDoc(userRef, {
+            seenPersonalities: arrayUnion(personalityId)
+        });
+    } catch (error) {
+        // If updateDoc fails (e.g., the document or field doesn't exist),
+        // fall back to setDoc with merge to ensure the field is created.
+        if (error.code === 'not-found' || error.message.includes("No document to update")) {
+             await setDoc(doc(db, 'users', state.userId), {
+                seenPersonalities: [personalityId]
+             }, { merge: true });
+        } else {
+            console.error("Failed to mark personality as seen:", error);
+        }
+    }
+}
+
+// --- ✅ [MODIFIED] PERSONALITY SELECTION LOGIC ---
 function subscribeAndDisplayPersonalities() {
     if (state.personalitiesUnsub) state.personalitiesUnsub();
-
     const personalitiesCol = collection(db, 'personalities');
     const q = query(personalitiesCol, orderBy('createdAt', 'desc'));
 
     state.personalitiesUnsub = onSnapshot(q, (personalitySnapshot) => {
         const oldDefaultId = state.defaultPersonalityId;
         const currentSelectedId = state.selectedPersonalityId;
-
         DOMElements.personalityList.innerHTML = '';
         let newDefaultPersonalityId = null;
 
@@ -317,11 +460,9 @@ function subscribeAndDisplayPersonalities() {
         personalitySnapshot.forEach((docSnap) => {
             const personality = docSnap.data();
             const id = docSnap.id;
-
             if (personality.isDefault) {
                 newDefaultPersonalityId = id;
             }
-
             const item = document.createElement('div');
             item.className = 'personality-item';
             item.dataset.id = id;
@@ -331,38 +472,87 @@ function subscribeAndDisplayPersonalities() {
                     <div class="personality-name">${sanitize(personality.name) || 'Unnamed'}</div>
                     <div class="personality-description">${sanitize(personality.description) || 'No description'}</div>
                 </div>`;
-            
+
+            // --- RE-ENGINEERED EVENT LISTENER LOGIC ---
             item.addEventListener('click', async () => {
+                // If this personality is already active, just close the popup and do nothing.
                 if (state.selectedPersonalityId === id) {
                     DOMElements.composerActionsPopup.classList.remove('show');
                     DOMElements.composerActionsBtn.classList.remove('active');
                     DOMElements.overlay.classList.remove('show');
                     return;
                 }
-
-                const lastSessionId = await findLastSessionForPersonality(id);
-
+                
+                // Close the personality list immediately for a smoother UI experience.
                 DOMElements.composerActionsPopup.classList.remove('show');
                 DOMElements.composerActionsBtn.classList.remove('active');
                 
-                if (lastSessionId) {
-                    showContinuationPrompt(id, lastSessionId);
-                } else {
-                    DOMElements.overlay.classList.remove('show');
-
-                    state.selectedPersonalityId = id;
-                    localStorage.setItem('selectedPersonalityId', id);
-                    document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
-                    item.classList.add('active');
+                try {
+                    // Fetch all necessary data upfront for efficiency.
+                    const personalityDoc = await getDoc(doc(db, 'personalities', id));
+                    if (!personalityDoc.exists()) {
+                        console.error("Selected personality does not exist.");
+                        DOMElements.overlay.classList.remove('show');
+                        return;
+                    }
+                    const fullPersonalityData = personalityDoc.data();
                     
-                    startNewChat();
+                    const userDoc = await getDoc(doc(db, 'users', state.userId));
+                    const seenPersonalities = userDoc.exists() ? userDoc.data().seenPersonalities || [] : [];
+                    
+                    // Determine if the video preview is required.
+                    const shouldShowPreview = fullPersonalityData.videoUrl && !seenPersonalities.includes(id);
+                    
+                    let userWantsToSwitch = true;
+                    if (shouldShowPreview) {
+                        // Show the preview and wait for the user's decision.
+                        userWantsToSwitch = await showPersonalityPreview({
+                            name: fullPersonalityData.name, 
+                            videoUrl: fullPersonalityData.videoUrl
+                        });
+                    }
+
+                    // If the user cancels the switch from the preview, halt the process.
+                    if (!userWantsToSwitch) {
+                        DOMElements.overlay.classList.remove('show');
+                        return;
+                    }
+
+                    // --- If we reach this point, the user has confirmed the switch. ---
+
+                    // If the preview was shown and confirmed, permanently mark it as seen.
+                    if (shouldShowPreview) {
+                        await markPersonalityAsSeen(id);
+                    }
+
+                    // Check for a previous chat session with this personality.
+                    const lastSessionId = await findLastSessionForPersonality(id);
+                    
+                    if (lastSessionId) {
+                        // If a session exists, prompt the user to continue or start over.
+                        showContinuationPrompt(id, lastSessionId);
+                    } else {
+                        // If no session exists, start a new chat immediately.
+                        DOMElements.overlay.classList.remove('show');
+                        state.selectedPersonalityId = id;
+                        localStorage.setItem('selectedPersonalityId', id);
+                        document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
+                        item.classList.add('active');
+                        startNewChat();
+                    }
+
+                } catch (error) {
+                    console.error("Error handling personality selection:", error);
+                    // Ensure the UI is in a clean state in case of an error.
+                    DOMElements.overlay.classList.remove('show');
                 }
             });
+
             DOMElements.personalityList.appendChild(item);
         });
 
+        // Update default and selected personality state
         state.defaultPersonalityId = newDefaultPersonalityId;
-
         if (currentSelectedId === oldDefaultId || currentSelectedId === null) {
             state.selectedPersonalityId = newDefaultPersonalityId;
             if (newDefaultPersonalityId) {
@@ -372,6 +562,7 @@ function subscribeAndDisplayPersonalities() {
             }
         }
 
+        // Update the active class in the UI
         document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
         if (state.selectedPersonalityId) {
             const activeItem = DOMElements.personalityList.querySelector(`.personality-item[data-id="${state.selectedPersonalityId}"]`);
@@ -386,7 +577,7 @@ function subscribeAndDisplayPersonalities() {
 }
 
 
-// --- CORE LOGIC (UNCHANGED) ---
+// --- CORE LOGIC & SESSION MANAGEMENT (UNCHANGED) ---
 function findMatchingTrigger(message) {
   if (!message) return null;
   const txt = String(message);
@@ -429,7 +620,7 @@ const sessionWarnings = sSnap.exists() ? (sSnap.data().warnings || 0) + 1 : 1;
 await setDoc(sRef, { warnings: sessionWarnings }, { merge: true });
 } catch (e) {
     console.warn('warnUser: failed updating session warnings', e);
-  }
+}
   return warnings;
 }
 async function blockUser(trigger) {
@@ -449,7 +640,7 @@ try {
 await setDoc(sRef, { blocked: true, blockedBy: 'bot', blockReason: reason, wasBlocked: true, lastBlockedAt: serverTimestamp() }, { merge: true });
 } catch (e) {
     console.warn('blockUser: set session failed', e);
-  }
+}
   state.sessionWasPreviouslyBlocked = true;
   state.subtleNoteShown = false;
 }
@@ -511,7 +702,7 @@ out.blocked = true;
   return out;
 }
 
-// --- ✅ [MODIFIED] loadConfigLive FUNCTION ---
+// --- loadConfigLive (UNCHANGED) ---
 function loadConfigLive() {
   if (state.configPromise) return state.configPromise;
 state.configPromise = (async () => {
@@ -520,9 +711,7 @@ state.configPromise = (async () => {
       Object.assign(botConfig, data || {});
       botConfig.allowFileUpload = parseBool(botConfig.allowFileUpload);
       botConfig.apiKeys = botConfig.apiKeys || {};
-
       apiKeyManager.initialize(botConfig.apiKeys);
-
       if (typeof botConfig.apiKey === 'string') botConfig.apiKey = botConfig.apiKey.trim();
       if (Array.isArray(data?.triggerPhrases)) {
         state.triggers = data.triggerPhrases.map(t => {
@@ -534,22 +723,21 @@ state.configPromise = (async () => {
       }
       botConfig.showSubtleNotes = parseBool(data?.showSubtleNotes ?? data?.subtleNotesEnabled ?? botConfig.showSubtleNotes);
       botConfig.blockReminderNote = (typeof data?.blockReminderNote === 'string') ? data.blockReminderNote : (data?.blockReminderNote || botConfig.blockReminderNote);
+      botConfig.promptSuggestions = Array.isArray(data?.promptSuggestions) ? data.promptSuggestions : [];
     };
     try {
-
-  const snap = await getDoc(cfgRef);
+      const snap = await getDoc(cfgRef);
       if (snap.exists()) {
         applyCfg(snap.data());
         applyConfigToUI();
-}
+      }
     } catch (err) {
       console.warn('loadConfigLive initial read error', err);
-}
+    }
     if (state.triggerUnsub) {
-      try { state.triggerUnsub();
-} catch(e){}
+      try { state.triggerUnsub(); } catch(e){}
       state.triggerUnsub = null;
-}
+    }
     state.triggerUnsub = onSnapshot(cfgRef, snap => {
       if (!snap.exists()) return;
       applyCfg(snap.data());
@@ -557,14 +745,16 @@ state.configPromise = (async () => {
     }, err => {
       console.error('config snapshot err', err);
     });
-return botConfig;
+    return botConfig;
   })();
   return state.configPromise;
 }
+
+// --- subscribeSessions (UNCHANGED) ---
 function subscribeSessions() {
   if (state.sessionsUnsub) state.sessionsUnsub();
   DOMElements.sessionList.innerHTML = Array(5).fill('<div class="skeleton"></div>').join('');
-const q = query(collection(db, 'sessions', state.userId, 'items'), orderBy('createdAt', 'desc'));
+  const q = query(collection(db, 'sessions', state.userId, 'items'), orderBy('createdAt', 'desc'));
   state.sessionsUnsub = onSnapshot(q, s => {
     DOMElements.sessionList.innerHTML = '';
     if (s.empty) {
@@ -597,41 +787,36 @@ function subscribeMessages() {
 
     container.querySelectorAll('.streaming').forEach(el => el.remove());
 
+    const wasAtBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50;
+
     container.innerHTML = '';
     if (snap.empty) {
-      const suggestions = [
-          { title: 'Explain a concept', prompt: 'Explain the concept of quantum entanglement like I\'m five.', icon: '🧠' },
-          { title: 'Write a story', prompt: 'Write a short, gritty, noir-style story set in Lagos.', icon: '✍️' },
-          { title: 'Plan a trip', prompt: 'Plan a 3-day itinerary for a first-time visitor to Abuja.', icon: '✈️' },
-          { title: 'Debug some code', prompt: 'What is wrong with this Javascript code? \n\nfunction (){ \n  const x = 1;\n  if(true) {\n    const x = 2;\n  }\n  return x;\n}', icon: '💻' }
-      ];
-
-      const suggestionButtonsHTML = suggestions.map(s =>
-        `<button class="prompt-suggestion-btn" data-prompt="${sanitize(s.prompt)}">
-          <span class="prompt-title">${s.title}</span>
-        </button>`
-      ).join('');
-
-      container.innerHTML = `<div id="welcome-screen">
-          <dotlottie-wc src="https://lottie.host/21d66b08-a3d6-4708-9843-5eacc664e174/Oxfbcz3F2M.lottie" style="width: 300px;height: 300px" speed="1" autoplay loop></dotlottie-wc>
-          <h3>How can I help you today?</h3>
-          <div class="prompt-suggestions">
-            ${suggestionButtonsHTML}
-          </div>
-        </div>`;
-
-      container.querySelectorAll('.prompt-suggestion-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const promptText = e.currentTarget.dataset.prompt;
-          DOMElements.messageInput.value = promptText;
-          DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
-          sendMessage();
+        const suggestions = (botConfig.promptSuggestions || []).slice(0, 6);
+        let suggestionButtonsHTML = '';
+        if (suggestions.length > 0) {
+            suggestionButtonsHTML = suggestions.map(s =>
+                `<button class="prompt-suggestion-btn" data-prompt="${sanitize(s.prompt)}">
+                    <span class="prompt-title">${s.icon || ''} ${s.title}</span>
+                </button>`
+            ).join('');
+        }
+        container.innerHTML = `<div id="welcome-screen">
+            <dotlottie-wc src="https://lottie.host/21d66b08-a3d6-4708-9843-5eacc664e174/Oxfbcz3F2M.lottie" style="width: 300px;height: 300px" speed="1" autoplay loop></dotlottie-wc>
+            <h3>How can I help you today?</h3>
+            ${suggestions.length > 0 ? `<div class="prompt-suggestions">${suggestionButtonsHTML}</div>` : ''}
+            </div>`;
+        container.querySelectorAll('.prompt-suggestion-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const promptText = e.currentTarget.dataset.prompt;
+                DOMElements.messageInput.value = promptText;
+                DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+                DOMElements.sendBtn.click();
+            });
         });
-      });
-      return;
+        return;
     }
 
-    const messages = snap.docs.map(doc => doc.data());
+    const messages = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     let lastSender = null, messageGroup = null;
     messages.forEach(msg => {
       if (msg.sender !== lastSender) {
@@ -642,21 +827,45 @@ function subscribeMessages() {
       }
       const el = document.createElement('div');
       el.className = `message ${msg.sender}`;
+      el.dataset.messageId = msg.id;
 
       const content = document.createElement('div');
       content.className = 'message-content';
 
-      if (typeof marked !== 'undefined') {
-        marked.setOptions({ gfm: true, breaks: true, headerIds: false, mangle: false });
-        const rawHTML = marked.parse(msg.text || '');
-        content.innerHTML = rawHTML;
+      const imageRegex = /!\[Image for prompt: "([^"]+)"\]\(([^)]+)\)/;
+      const imageMatch = (msg.text || '').match(imageRegex);
+      const placeholderRegex = /^\[IMAGE_PLACEHOLDER_PROMPT:"([^"]+)"\]$/;
+      const placeholderMatch = (msg.text || '').match(placeholderRegex);
+
+      if (msg.sender === 'bot' && imageMatch) {
+          const promptText = imageMatch[1];
+          const imageUrl = imageMatch[2];
+          content.innerHTML = `
+              <p style="margin-bottom: 8px;">Here's the image for: <strong>${promptText}</strong></p>
+              <a href="${imageUrl}" target="_blank" rel="noopener noreferrer">
+                  <img src="${imageUrl}" alt="Generated image for ${promptText}">
+              </a>
+          `;
+      } else if (msg.sender === 'bot' && placeholderMatch) {
+          const promptText = placeholderMatch[1];
+          content.innerHTML = `
+              <div class="image-placeholder">
+                  <div class="spinner"></div>
+                  <p>Generating an image of: <strong>${promptText}</strong></p>
+              </div>`;
       } else {
-        content.textContent = msg.text || '';
+          if (typeof marked !== 'undefined') {
+            marked.setOptions({ gfm: true, breaks: true, headerIds: false, mangle: false });
+            const rawHTML = marked.parse(msg.text || '');
+            content.innerHTML = rawHTML;
+          } else {
+            content.textContent = msg.text || '';
+          }
       }
 
       el.appendChild(content);
 
-      if (msg.sender === 'bot') {
+      if (msg.sender === 'bot' && !imageMatch && !placeholderMatch) {
         const copyBtn = document.createElement('button');
         copyBtn.className = 'copy-message-btn';
         copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1z"/></svg>`;
@@ -678,10 +887,13 @@ function subscribeMessages() {
     });
     container.querySelectorAll('pre code').forEach(block => { try { hljs.highlightElement(block); } catch(e){} });
     addCopyButtons();
-    scrollToBottom();
+    if (wasAtBottom) {
+      scrollToBottom();
+    }
   }, err => console.error('Messages snapshot error', err));
 }
 
+// --- USER TRACKING & OTHER SESSION MANAGEMENT (UNCHANGED) ---
 function parseUserAgent(ua) {
     const parser = {};
     const regex = {
@@ -695,8 +907,6 @@ function parseUserAgent(ua) {
     if (parser.browser === 'Trident' || parser.browser === 'MSIE') parser.browser = 'Internet Explorer';
     return parser;
 }
-
-// --- USER TRACKING (UNCHANGED) ---
 async function trackUserLocationAndDevice() {
     try {
         const locationResponse = await fetch('https://ipapi.co/json/');
@@ -738,8 +948,6 @@ async function ensureUser(){
     await updateDoc(ref, updateData).catch(() => {});
   }
 }
-
-// --- ✅ [MODIFIED] SESSION METADATA NOW SAVES PERSONALITY ID (UNCHANGED FROM YOUR SCRIPT) ---
 async function ensureSessionMetadataOnFirstMsg(sid, msg){
   const ref=doc(db,'sessions',state.userId,'items',sid);
   const s = await getDoc(ref);
@@ -748,7 +956,7 @@ async function ensureSessionMetadataOnFirstMsg(sid, msg){
         title: msg || 'New Chat',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        warnings: 0, 
+        warnings: 0,
         wasBlocked: false,
         personalityId: state.selectedPersonalityId
     }, { merge: true });
@@ -798,12 +1006,7 @@ async function isUserOrSessionBlocked(){
   return { blocked: false };
 }
 
-// --- ✅ [HEAVILY MODIFIED] sendMessage AND NEW HELPER FUNCTIONS ---
-
-/**
- * [NEW] Toggles the state of the send button (Mic, Send, Stop).
- * @param {'mic' | 'send' | 'stop'} state - The target state.
- */
+// --- toggleSendButtonState (UNCHANGED) ---
 function toggleSendButtonState(buttonState) {
     const btn = DOMElements.sendBtn;
     const icons = {
@@ -811,7 +1014,7 @@ function toggleSendButtonState(buttonState) {
         send: btn.querySelector('.send-icon'),
         stop: btn.querySelector('.stop-icon'),
     };
-    
+
     for (const icon in icons) {
         if (icons[icon]) icons[icon].style.display = 'none';
     }
@@ -833,13 +1036,7 @@ function toggleSendButtonState(buttonState) {
     }
 }
 
-/**
- * [NEW] Creates a cancellable promise that waits for a specified duration.
- * It also updates the UI with a countdown message.
- * @param {number} duration - The wait duration in milliseconds.
- * @param {string} [countdownMessage] - The message to display with the countdown.
- * @returns {Promise<boolean>} A promise that resolves to true if stopped by the user, false otherwise.
- */
+// --- cancellableWait (UNCHANGED) ---
 function cancellableWait(duration, countdownMessage = '') {
     return new Promise(resolve => {
         let timeLeft = Math.ceil(duration / 1000);
@@ -850,12 +1047,12 @@ function cancellableWait(duration, countdownMessage = '') {
         };
 
         if (countdownMessage) updateCountdown();
-        
+
         const interval = setInterval(() => {
             if (autoRetryState.stopRequested) {
                 clearInterval(interval);
                 clearTimeout(timeout);
-                resolve(true); // Stopped
+                resolve(true);
             }
             timeLeft--;
             if (countdownMessage) updateCountdown();
@@ -864,33 +1061,24 @@ function cancellableWait(duration, countdownMessage = '') {
         const timeout = setTimeout(() => {
             clearInterval(interval);
             if (!autoRetryState.stopRequested) {
-                resolve(false); // Not stopped
+                resolve(false);
             }
         }, duration);
     });
 }
 
-
-/**
- * [NEW] Immediately stops the automated API request loop.
- */
+// --- stopApiRequestLoop (UNCHANGED) ---
 function stopApiRequestLoop() {
     if (autoRetryState.isActive) {
         autoRetryState.stopRequested = true;
         if (fetchController) {
-            fetchController.abort(); // Abort any in-flight fetch request
+            fetchController.abort();
         }
         console.log("User requested to stop the API request loop.");
     }
 }
 
-/**
- * [NEW] Core API fetch and stream processing logic.
- * @param {object} requestBody - The full body for the fetch request.
- * @param {string} apiKey - The API key to use for this request.
- * @param {AbortSignal} abortSignal - The signal to abort the fetch request.
- * @returns {Promise<string>} The accumulated bot reply.
- */
+// --- makeApiRequest with Interruptible Auto-Scroll (UNCHANGED) ---
 async function makeApiRequest(requestBody, apiKey, abortSignal) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(endpoint, {
@@ -910,131 +1098,195 @@ async function makeApiRequest(requestBody, apiKey, abortSignal) {
         }
         throw new Error(errorMessage);
     }
-    
+
     const { botMessageContent } = autoRetryState.botMessageElements;
     let accumulatedBotReply = '';
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    
+
+    let contentUpdated = false;
+    let streamFinished = false;
+
+    // Initialize auto-scroll check at the beginning of the stream
+    const chatMessages = DOMElements.chatMessages;
+    let autoScrollEnabled = (chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 100);
+
+    const renderLoop = () => {
+        if (contentUpdated) {
+            // Render content first
+            botMessageContent.innerHTML = marked.parse(accumulatedBotReply + '<span class="typing-cursor"></span>');
+            
+            // Handle interruptible scrolling
+            if (autoScrollEnabled) {
+                // Re-check if the user is still near the bottom before scrolling
+                if (chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 100) {
+                    scrollToBottom('auto'); // Use 'auto' for instant scrolling during streaming
+                } else {
+                    // User has scrolled up, so disable auto-scrolling for the rest of this message
+                    autoScrollEnabled = false;
+                }
+            }
+            contentUpdated = false;
+        }
+
+        if (!streamFinished) {
+            requestAnimationFrame(renderLoop);
+        } else {
+            // Final render to remove the typing cursor
+            botMessageContent.innerHTML = marked.parse(accumulatedBotReply);
+            addCopyButtons(); // Re-apply copy buttons to the final content
+            // Perform one final, smooth scroll if auto-scroll was never interrupted
+            if (autoScrollEnabled) {
+                scrollToBottom('smooth');
+            }
+        }
+    };
+    requestAnimationFrame(renderLoop);
+
     while (true) {
         if (abortSignal.aborted) {
+            streamFinished = true;
             reader.cancel();
             throw new Error("Request stopped by user.");
         }
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) {
+            streamFinished = true;
+            break;
+        }
         const chunk = decoder.decode(value);
         const lines = chunk.split('\n');
         for (const line of lines) {
             if (line.trim().startsWith('"text":')) {
                 const textPart = line.substring(line.indexOf(':') + 2).replace(/",?$/, '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
                 accumulatedBotReply += textPart;
-                if (botMessageContent) {
-                  botMessageContent.innerHTML = marked.parse(accumulatedBotReply + '<span class="typing-cursor"></span>');
-                  scrollToBottom('smooth');
-                }
+                contentUpdated = true;
             }
         }
     }
     return accumulatedBotReply;
 }
 
-/**
- * [NEW] Cleans up the UI and state after the request loop finishes (success, fail, or stop).
- */
+// --- cleanupAfterLoop (UNCHANGED) ---
 function cleanupAfterLoop() {
     autoRetryState.isActive = false;
     const text = DOMElements.messageInput.value.trim();
-    if (text || selectedFile) {
+    if (text || selectedFiles.length > 0) {
         toggleSendButtonState('send');
     } else {
         toggleSendButtonState('mic');
     }
-    fileContentForNextMessage = '';
 }
 
-/**
- * [NEW & IMPROVED] The main automated loop for sending a request with a master timeout.
- */
+// --- generateAndReplaceImage (UNCHANGED) ---
+async function generateAndReplaceImage(prompt, placeholderDocId) {
+    try {
+        const imageUrl = await handleImageGenerationWithCloudinary(prompt);
+        const botMessageToSave = `![Image for prompt: "${prompt}"](${imageUrl})`;
+        
+        const placeholderDocRef = doc(db, 'chats', state.userId, state.sessionId, placeholderDocId);
+        await updateDoc(placeholderDocRef, {
+            text: botMessageToSave
+        });
+    } catch (error) {
+        console.error("Async image generation/replacement failed:", error);
+        const errorMessage = `⚠️ Sorry, I couldn't create that image. Reason: ${error.message}`;
+        
+        const placeholderDocRef = doc(db, 'chats', state.userId, state.sessionId, placeholderDocId);
+        await updateDoc(placeholderDocRef, {
+            text: errorMessage
+        });
+    }
+}
+
+
+// --- executeApiRequestLoop (UNCHANGED) ---
 async function executeApiRequestLoop() {
     autoRetryState.isActive = true;
     autoRetryState.stopRequested = false;
     fetchController = new AbortController();
     toggleSendButtonState('stop');
 
-    const MASTER_TIMEOUT = 90000; // 1.5 minutes
+    const MASTER_TIMEOUT = 90000;
     const startTime = Date.now();
     let finalAccumulatedReply = '';
     let success = false;
-    
+
     while (Date.now() - startTime < MASTER_TIMEOUT && !autoRetryState.stopRequested) {
-        // This inner loop cycles through all available keys once.
         const keyCount = apiKeyManager.keys.length;
         if (keyCount === 0) {
-            DOMElements.statusRow.textContent = "No API keys available. Searching for new keys...";
+            showApiStatus("⚠️ No API keys available. Retrying...", -1); 
             if (await cancellableWait(10000)) break;
-            continue; // Re-start the while loop to check for new keys again
+            continue;
         }
 
-        let keyCycleCompleted = false;
         for (let i = 0; i < keyCount; i++) {
             if (autoRetryState.stopRequested) break;
 
             const currentKeyInfo = apiKeyManager.getCurrentKey();
-            
-            // ATTEMPT 1: Initial Request
-            DOMElements.statusRow.textContent = `Contacting server with Key #${currentKeyInfo.index + 1}...`;
+            await updateLiveStatus(currentKeyInfo.id);
+            showApiStatus(`⚡️ Using API Key #${currentKeyInfo.index + 1}...`, -1);
+
             try {
                 finalAccumulatedReply = await makeApiRequest(autoRetryState.requestPayload, currentKeyInfo.key, fetchController.signal);
                 success = true;
-                break;
+                break; 
             } catch (err) {
-                if (err.name === 'AbortError') break;
-                console.error(`Initial attempt on key #${currentKeyInfo.index + 1} failed: ${err.message}`);
+                if (err.name === 'AbortError') break; 
+                console.error(`Attempt on key #${currentKeyInfo.index + 1} failed: ${err.message}`);
+                await reportKeyFailure(currentKeyInfo.id);
             }
 
             if (autoRetryState.stopRequested) break;
-
-            // ATTEMPT 2: Network Retry (Same Key)
-            if (await cancellableWait(5000, `Connection issue? Retrying with Key #${currentKeyInfo.index + 1} in`)) break;
             
-            try {
-                finalAccumulatedReply = await makeApiRequest(autoRetryState.requestPayload, currentKeyInfo.key, fetchController.signal);
-                success = true;
-                break;
-            } catch (err) {
-                if (err.name === 'AbortError') break;
-                console.error(`Retry attempt on key #${currentKeyInfo.index + 1} failed: ${err.message}`);
-            }
-
-            if (autoRetryState.stopRequested) break;
-
-            // Both attempts failed, switch to the next key for the next iteration.
-            apiKeyManager.switchToNextKey();
-            if (i === keyCount - 1) {
-                keyCycleCompleted = true; // We've tried all keys in the current list
+            const nextKeyInfo = apiKeyManager.switchToNextKey();
+            if (nextKeyInfo) {
+                showApiStatus(`Key #${currentKeyInfo.index + 1} failed. Switching to Key #${nextKeyInfo.index + 1}...`, 2000);
+                if (await cancellableWait(2000)) break;
             }
         }
 
         if (success || autoRetryState.stopRequested) {
-            break; // Exit the main while-loop
-        }
-
-        // If a full cycle of all known keys has failed, wait before starting over.
-        if (keyCycleCompleted) {
-            if (await cancellableWait(10000, `All keys are busy. Re-checking for an available key in`)) break;
+            break; 
         }
     }
 
-    // --- Finalize based on outcome ---
-    const { botMessageContent, botMessageGroup } = autoRetryState.botMessageElements;
+    const { botMessageGroup } = autoRetryState.botMessageElements;
+    DOMElements.apiStatusRow.classList.add('hidden'); 
+    DOMElements.statusRow.textContent = '';
+    
     if (success) {
         apiKeyManager.recordUsage(apiKeyManager.getCurrentKey().id);
-        DOMElements.statusRow.textContent = '';
-        botMessageContent.innerHTML = marked.parse(finalAccumulatedReply);
-        botMessageContent.querySelectorAll('pre code').forEach(block => { try { hljs.highlightElement(block); } catch (e) {} });
-        addCopyButtons();
-        await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: finalAccumulatedReply, sender: 'bot', createdAt: new Date() });
+        botMessageGroup.remove();
+        
+        const imageCommandRegex = /\[\s*"?'?generate_image'?"?\s*[:\s]+"?([\s\S]*?)"?\s*\]/s;
+        const match = finalAccumulatedReply.match(imageCommandRegex);
+        
+        if (match && match[1]) {
+            const followUpText = finalAccumulatedReply.replace(match[0], '').trim();
+            let prompt = match[1].trim();
+            if ((prompt.startsWith('"') && prompt.endsWith('"')) || (prompt.startsWith("'") && prompt.endsWith("'"))) {
+                prompt = prompt.substring(1, prompt.length - 1);
+            }
+
+            if (followUpText) {
+                await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
+                    text: followUpText, sender: 'bot', createdAt: new Date()
+                });
+            }
+
+            const placeholderText = `[IMAGE_PLACEHOLDER_PROMPT:"${prompt}"]`;
+            const placeholderDocRef = await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
+                text: placeholderText, sender: 'bot', createdAt: new Date()
+            });
+
+            generateAndReplaceImage(prompt, placeholderDocRef.id);
+
+        } else {
+            await addDoc(collection(db, 'chats', state.userId, state.sessionId), { 
+                text: finalAccumulatedReply, sender: 'bot', createdAt: new Date() 
+            });
+        }
     } else {
         if (autoRetryState.stopRequested) {
             DOMElements.statusRow.textContent = 'Request stopped by user.';
@@ -1042,112 +1294,232 @@ async function executeApiRequestLoop() {
         } else {
             const finalErrorMsg = "⚠️ Could not get your request. The server took too long to respond. Please try again later.";
             DOMElements.statusRow.textContent = finalErrorMsg;
-            botMessageContent.innerHTML = finalErrorMsg;
-            if (state.sessionId) {
-                await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: finalErrorMsg, sender: 'bot', createdAt: new Date() });
-            }
+            botMessageGroup.querySelector('.message-content').innerHTML = finalErrorMsg;
+            botMessageGroup.classList.remove('streaming'); 
         }
     }
-    
+
     cleanupAfterLoop();
 }
 
-
-/**
- * [MODIFIED] This function now only PREPARES the request and then starts the automated loop.
- */
+// --- sendMessage (UNCHANGED) ---
 async function sendMessage() {
-  if (autoRetryState.isActive) return;
+    const text = sanitize(DOMElements.messageInput.value);
 
-  const text = sanitize(DOMElements.messageInput.value);
-  if (!text && !selectedFile) return;
+    if (autoRetryState.isActive) return;
+    if (!text && selectedFiles.length === 0) return;
 
-  toggleSendButtonState('stop');
-  DOMElements.statusRow.textContent = '';
-  DOMElements.messageInput.value = '';
-  DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+    toggleSendButtonState('stop');
+    DOMElements.statusRow.textContent = '';
+    DOMElements.messageInput.value = '';
+    autosize(DOMElements.messageInput);
 
-  let userMessageToSave = text;
-  
-  try {
-      if (selectedFile) {
-          DOMElements.statusRow.textContent = `Processing file...`;
-          try {
-              fileContentForNextMessage = await parseFileContent(selectedFile);
-          } catch (err) {
-              console.error('File parsing failed:', err);
-              DOMElements.statusRow.textContent = `Error reading file: ${err.message}`;
-              resetFileInput();
-              cleanupAfterLoop();
-              return;
-          }
-          userMessageToSave = text ? `📄 **File Uploaded: ${selectedFile.name}**\n\n${text}` : `📄 **File Uploaded: ${selectedFile.name}**`;
-          resetFileInput();
-      }
+    const filesToProcess = [...selectedFiles];
+    resetFileInput();
 
-      await loadConfigLive();
-      if (!botConfig.active) {
-          await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother bitch.', sender: 'bot', createdAt: new Date() });
-          cleanupAfterLoop();
-          return;
-      }
-      const uSnapPre = await getDoc(doc(db, 'users', state.userId));
-      if (uSnapPre.exists() && uSnapPre.data().blocked === true) {
-          await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This user has been blocked by admin.', sender: 'bot', createdAt: new Date() });
-          cleanupAfterLoop();
-          return;
-      }
+    try {
+        await loadConfigLive();
+        if (!botConfig.active) {
+            await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ Dude! I am Under maintenance . Do not bother bitch.', sender: 'bot', createdAt: new Date() });
+            cleanupAfterLoop();
+            return;
+        }
+        const uSnapPre = await getDoc(doc(db, 'users', state.userId));
+        if (uSnapPre.exists() && uSnapPre.data().blocked === true) {
+            await addDoc(collection(db, 'chats', state.userId, state.sessionId), { text: '⚠️ This user has been blocked by admin.', sender: 'bot', createdAt: new Date() });
+            cleanupAfterLoop();
+            return;
+        }
 
-      const handleResult = await handleUserMessage(userMessageToSave);
-      if (handleResult && handleResult.blocked && !handleResult.matchedTrigger) {
-          cleanupAfterLoop();
-          return;
-      }
-      
-      const botMessageGroup = document.createElement('div');
-      botMessageGroup.className = 'message-group bot streaming';
-      const botMessageEl = document.createElement('div');
-      botMessageEl.className = 'message bot';
-      if(botConfig.botBubbleColor) botMessageEl.style.background = botConfig.botBubbleColor;
-      const botMessageContent = document.createElement('div');
-      botMessageContent.className = 'message-content';
-      botMessageContent.innerHTML = '<span class="typing-cursor"></span>';
-      botMessageEl.appendChild(botMessageContent);
-      botMessageGroup.appendChild(botMessageEl);
-      DOMElements.chatMessages.querySelector('#welcome-screen')?.remove();
-      DOMElements.chatMessages.appendChild(botMessageGroup);
-      scrollToBottom('smooth');
+        let userMessageForUI = text;
+        let fileSummaryForUI = '';
+        const userMessageParts = [{ text }];
 
-      const snaps = await getDocs(query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc')));
-      let activePersonaInstructions = '';
-      if (state.selectedPersonalityId) {
-          const personaDoc = await getDoc(doc(db, 'personalities', state.selectedPersonalityId));
-          if (personaDoc.exists()) activePersonaInstructions = personaDoc.data().persona || '';
-      }
-      if (!activePersonaInstructions) activePersonaInstructions = botConfig.persona || '';
-      
-      // ✅ SYNTAX CORRECTION from previous version is maintained here
-      const systemInstruction = { role: 'user', parts: [{ text: `${activePersonaInstructions}\n\n---**SYSTEM INSTRUCTIONS:**\nprovide clear, readable, and well-structured answers. ALWAYS format your responses using Markdown. This is mandatory.\n- Use headings, bullet points, and numbered lists.\n- Use bold text for key terms.\n- Use code blocks for code snippets.\n---` }] };
-      const contents = snaps.docs.map(d => ({ role: d.data().sender === 'user' ? 'user' : 'model', parts: [{ text: d.data().text }] }));
-      
-      if (fileContentForNextMessage) {
-          const lastMessage = contents[contents.length - 1];
-          if (lastMessage && lastMessage.role === 'user') lastMessage.parts[0].text = `[File: "${selectedFile?.name}"]\n---FILE CONTENT---\n${fileContentForNextMessage}\n---END FILE CONTENT---\n\nUser's Message: "${lastMessage.parts[0].text}"`;
-      }
-      
-      autoRetryState.requestPayload = { contents: [systemInstruction, {role: 'model', parts: [{text: "Understood."}]}, ...contents] };
-      autoRetryState.botMessageElements = { botMessageGroup, botMessageEl, botMessageContent };
-      
-      executeApiRequestLoop();
+        if (filesToProcess.length > 0) {
+            DOMElements.statusRow.textContent = `Processing ${filesToProcess.length} file(s)...`;
+            for (const fileWrapper of filesToProcess) {
+                const file = fileWrapper.file;
+                let content = '';
+                let fileTypeLabel = 'FILE';
+                let status = 'unreadable';
 
-  } catch (err) {
-      console.error('sendMessage preparation error', err);
-      DOMElements.statusRow.textContent = '⚠️ Error: ' + (err.message || 'Could not prepare message.');
-      cleanupAfterLoop();
-  }
+                if (file.type.startsWith('image/')) {
+                    const base64 = await parseImageFile(file);
+                    userMessageParts.push({ inline_data: { mime_type: file.type, data: base64 } });
+                    fileSummaryForUI += `🖼️ ${file.name}\n`;
+                    status = 'processed_visual'; // Special status for images
+                } else if (file.type.startsWith('text/')) {
+                    content = await parseTextFile(file);
+                    fileTypeLabel = 'TEXT FILE';
+                    status = 'processed_text';
+                    fileSummaryForUI += `📄 ${file.name}\n`;
+                } else if (file.type === 'application/pdf') {
+                    content = await parsePdfFile(file);
+                    fileTypeLabel = 'PDF';
+                    status = 'processed_text';
+                    fileSummaryForUI += `📄 ${file.name}\n`;
+                } else {
+                    fileSummaryForUI += `❓ ${file.name}\n`; // File type is not processable
+                }
+
+                if (status === 'processed_text') {
+                    userMessageParts[0].text += `\n\n--- ${fileTypeLabel}: ${file.name} ---\n${content}\n--- END ${fileTypeLabel} ---`;
+                } else if (status === 'unreadable') {
+                    userMessageParts[0].text += `\n\n[System note: User uploaded a file named "${file.name}" of type "${file.type || 'unknown'}", but its content cannot be read.]`;
+                }
+            }
+            userMessageForUI = fileSummaryForUI.trim() + (text ? `\n\n${text}` : '');
+        }
+        DOMElements.statusRow.textContent = ``;
+
+        const handleResult = await handleUserMessage(userMessageForUI);
+        if (handleResult && handleResult.blocked && !handleResult.matchedTrigger) {
+            cleanupAfterLoop();
+            return;
+        }
+
+        const botMessageGroup = document.createElement('div');
+        botMessageGroup.className = 'message-group bot streaming';
+        const botMessageEl = document.createElement('div');
+        botMessageEl.className = 'message bot';
+        if(botConfig.botBubbleColor) botMessageEl.style.background = botConfig.botBubbleColor;
+        const botMessageContent = document.createElement('div');
+        botMessageContent.className = 'message-content';
+        botMessageContent.innerHTML = '<span class="typing-cursor"></span>';
+        botMessageEl.appendChild(botMessageContent);
+        botMessageGroup.appendChild(botMessageEl);
+        DOMElements.chatMessages.querySelector('#welcome-screen')?.remove();
+        DOMElements.chatMessages.appendChild(botMessageGroup);
+        scrollToBottom('smooth');
+
+        const snaps = await getDocs(query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc')));
+        let activePersonaInstructions = '';
+        if (state.selectedPersonalityId) {
+            const personaDoc = await getDoc(doc(db, 'personalities', state.selectedPersonalityId));
+            if (personaDoc.exists()) activePersonaInstructions = personaDoc.data().persona || '';
+        }
+        if (!activePersonaInstructions) activePersonaInstructions = botConfig.persona || '';
+
+        const systemInstruction = {
+            role: 'user',
+            parts: [{
+                text: `${activePersonaInstructions}\n\n---**SYSTEM INSTRUCTIONS:**\n` +
+                "You have a tool to generate images. To use it, you MUST respond with the special command `[generate_image: A detailed description of the image to create]`. **After you output this command, you MUST provide a follow-up message on a new line describing the image you've just requested.** The system will handle displaying the image and your text comment separately. For example, if the user says 'make a picture of a dragon', your entire response should be:\n`[generate_image: A majestic fantasy dragon with shimmering scales, breathing fire, perched on a mountain peak]`\nOf course! Here is the image of the majestic dragon you asked for. It's perched high on a mountain, breathing a plume of fire." +
+                "\n\nFor all other requests, provide clear, readable, and well-structured answers. ALWAYS format your responses using Markdown. This is mandatory.\n- Use headings, bullet points, and numbered lists.\n- Use bold text for key terms.\n- Use code blocks for code snippets.\n---"
+            }]
+        };
+
+        const imageMarkdownRegex = /!\[Image for prompt: "([^"]+)"\]\(([^)]+)\)/;
+        const historyContents = snaps.docs.map(d => {
+            const data = d.data();
+            const role = data.sender === 'user' ? 'user' : 'model';
+            let messageText = data.text;
+            
+            const imageMatch = messageText.match(imageMarkdownRegex);
+            if (role === 'model' && imageMatch) {
+                const prompt = imageMatch[1];
+                const imageUrl = imageMatch[2];
+                messageText = `[System: You have successfully generated an image for the prompt "${prompt}". The image is available at this URL: ${imageUrl}. The user can see it now. You can describe the image or ask if they want modifications.]`;
+            }
+            
+            return { role, parts: [{ text: messageText }] };
+        });
+        
+        if (historyContents.length > 0) {
+            historyContents[historyContents.length - 1].parts = userMessageParts;
+        }
+        
+        autoRetryState.requestPayload = { contents: [systemInstruction, {role: 'model', parts: [{text: "Understood."}]}, ...historyContents] };
+        autoRetryState.botMessageElements = { botMessageGroup, botMessageEl, botMessageContent };
+
+        executeApiRequestLoop();
+
+    } catch (err) {
+        console.error('sendMessage preparation error', err);
+        DOMElements.statusRow.textContent = '⚠️ Error: ' + (err.message || 'Could not prepare message.');
+        cleanupAfterLoop();
+    }
 }
 
-// --- ⭐ SESSION MANAGEMENT (UNCHANGED) ---
+
+// --- handleImageGenerationWithCloudinary (UNCHANGED) ---
+async function handleImageGenerationWithCloudinary(prompt) {
+    const CLOUDINARY_CLOUD_NAME = "dvjs45kft";
+    const CLOUDINARY_UPLOAD_PRESET = "vevapvkv";
+    let stabilityApiKey = '';
+
+    try {
+        const configSnap = await getDoc(doc(db, 'config', 'global'));
+        if (configSnap.exists()) {
+            const apiKeys = configSnap.data().apiKeys || {};
+            const imageKeyEntry = Object.values(apiKeys).find(k => k.type === 'image' && k.enabled !== false);
+            if (imageKeyEntry && imageKeyEntry.key) {
+                stabilityApiKey = imageKeyEntry.key;
+            }
+        }
+        if (!stabilityApiKey) {
+            throw new Error("No enabled Image API key found from my end.");
+        }
+
+        const engineId = 'stable-diffusion-xl-1024-v1-0';
+        const apiHost = 'https://api.stability.ai';
+        const apiKey = stabilityApiKey;
+
+        const response = await fetch(`${apiHost}/v1/generation/${engineId}/text-to-image`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                text_prompts: [{ text: prompt }],
+                cfg_scale: 7,
+                height: 1024,
+                width: 1024,
+                steps: 30,
+                samples: 1,
+            }),
+        });
+
+        if (!response.ok) {
+            let errorDetails = `(Status: ${response.status})`;
+            try {
+                const errorData = await response.json();
+                errorDetails = errorData.message || JSON.stringify(errorData);
+            } catch (e) {
+                errorDetails = response.statusText;
+            }
+            throw new Error(`The image service returned an error: ${errorDetails}`);
+        }
+
+        const responseJSON = await response.json();
+        const imageBase64 = responseJSON.artifacts[0].base64;
+
+        const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+        const formData = new FormData();
+        formData.append('file', `data:image/png;base64,${imageBase64}`);
+        formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+        const cloudinaryResponse = await fetch(cloudinaryUrl, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!cloudinaryResponse.ok) {
+            throw new Error('Failed to upload the image.');
+        }
+
+        const cloudinaryData = await cloudinaryResponse.json();
+        return cloudinaryData.secure_url;
+
+    } catch (error) {
+        console.error("Image generation process failed:", error);
+        throw error;
+    }
+}
+
+// --- SESSION MANAGEMENT & EVENT LISTENERS (UNCHANGED) ---
 function startNewChat(){
   state.sessionId=crypto.randomUUID();
   localStorage.setItem('chatSessionId',state.sessionId);
@@ -1156,7 +1528,6 @@ function startNewChat(){
   checkSessionWasPreviouslyBlocked().catch(()=>{});
   document.querySelectorAll('.session-item.active').forEach(el=>el.classList.remove('active'));
 }
-
 function loadSessionById(id){
   state.sessionId=id;
   localStorage.setItem('chatSessionId',id);
@@ -1168,7 +1539,6 @@ function loadSessionById(id){
   if(el)el.classList.add('active');
   if(window.innerWidth<=900){DOMElements.sidebar.classList.remove('open');DOMElements.overlay.classList.remove('show');}
 }
-
 async function clearHistory(){
   if(!confirm('Clear chat history? This cannot be undone.'))return;
   try{
@@ -1181,15 +1551,12 @@ async function clearHistory(){
     startNewChat();
   }catch(err){console.error('Clear history error:',err);alert(`Failed: ${err.message}`);}
 }
-
-// --- ✅ [MODIFIED] DYNAMIC MIC/SEND BUTTON & VOICE INPUT ---
 let recognition;
 DOMElements.messageInput.addEventListener('input', () => {
   autosize(DOMElements.messageInput);
   if (autoRetryState.isActive) return;
-
   const text = DOMElements.messageInput.value.trim();
-  if (text || selectedFile) {
+  if (text || selectedFiles.length > 0) {
     toggleSendButtonState('send');
   } else {
     toggleSendButtonState('mic');
@@ -1220,23 +1587,19 @@ if ('webkitSpeechRecognition' in window) {
     if (msg) sendMessage();
   };
 }
-
 DOMElements.sendBtn.addEventListener('click', () => {
   if (autoRetryState.isActive) {
       stopApiRequestLoop();
       return;
   }
-
   if (DOMElements.sendBtn.classList.contains('listening')) {
       if(recognition) recognition.stop();
       return;
   }
   const text = DOMElements.messageInput.value.trim();
-  if (text || selectedFile) sendMessage();
+  if (text || selectedFiles.length > 0) sendMessage();
   else if (recognition) recognition.start();
 });
-
-// --- USER ACTIVITY TRACKING (UNCHANGED) ---
 async function updateUserStatusInFirestore(status) {
     if (!state.userId || !db) return;
     try {
@@ -1249,7 +1612,6 @@ async function updateUserStatusInFirestore(status) {
         console.warn("Could not update user status", e);
     }
 }
-
 let inactivityTimer;
 const inactivityTimeout = 60000;
 function setUserActive() {
@@ -1270,13 +1632,156 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('beforeunload', () => { updateUserStatusInFirestore('Offline'); });
 
-// --- ⭐ INIT FUNCTION (UNCHANGED) ---
+// --- NEW USER TOUR LOGIC (UNCHANGED) ---
+const tourManager = {
+    steps: [
+        {
+            element: '#sidebar',
+            title: 'Welcome to Chaka!',
+            text: 'This is your chat history sidebar. All your conversations will be saved here for easy access.'
+        },
+        {
+            element: '#new-chat-sidebar-btn',
+            title: 'Start a New Chat',
+            text: 'Click here anytime to start a fresh conversation.'
+        },
+        {
+            element: '#composer-actions-btn',
+            title: 'Personalities & Files',
+            text: 'Use this button to switch between different AI personalities or to upload a file for the AI to read.'
+        },
+        {
+            element: '#message-input',
+            title: 'Start Talking!',
+            text: 'Type your message here and press the send button. That\'s it! Enjoy your chat.'
+        }
+    ],
+    currentStep: 0,
+    start() { 
+        DOMElements.tourOverlay.classList.remove('hidden');
+        this.currentStep = 0;
+        this.showStep(this.currentStep);
+    },
+    showStep(index) {
+        if (index < 0 || index >= this.steps.length) return;
+        
+        this.currentStep = index;
+        const step = this.steps[index];
+        const targetElement = document.querySelector(step.element);
+        
+        if (window.innerWidth <= 900) {
+            const isSidebarStep = step.element === '#sidebar' || step.element === '#new-chat-sidebar-btn';
+            if (isSidebarStep) {
+                DOMElements.sidebar.classList.add('open');
+            } else {
+                DOMElements.sidebar.classList.remove('open');
+            }
+        }
+
+        DOMElements.tourTitle.textContent = step.title;
+        DOMElements.tourText.textContent = step.text;
+        DOMElements.tourStepCounter.textContent = `${index + 1} / ${this.steps.length}`;
+        
+        setTimeout(() => {
+            if (targetElement) {
+                const rect = targetElement.getBoundingClientRect();
+                
+                if (rect.width === 0 && rect.height === 0) {
+                    this.end();
+                    return;
+                }
+                
+                DOMElements.tourSpotlight.style.width = `${rect.width + 16}px`;
+                DOMElements.tourSpotlight.style.height = `${rect.height + 16}px`;
+                DOMElements.tourSpotlight.style.top = `${rect.top - 8}px`;
+                DOMElements.tourSpotlight.style.left = `${rect.left - 8}px`;
+
+                const rLeft = rect.left - 8;
+                const rTop = rect.top - 8;
+                const rRight = rect.right + 8;
+                const rBottom = rect.bottom + 8;
+
+                const clipPathPolygon = `polygon(
+                    0% 0%, 0% 100%, 100% 100%, 100% 0%, 0% 0%,
+                    ${rLeft}px ${rTop}px,
+                    ${rLeft}px ${rBottom}px,
+                    ${rRight}px ${rBottom}px,
+                    ${rRight}px ${rTop}px,
+                    ${rLeft}px ${rTop}px
+                )`;
+                DOMElements.tourOverlay.style.clipPath = clipPathPolygon;
+
+                const tooltipEl = DOMElements.tourTooltip;
+                const tooltipRect = tooltipEl.getBoundingClientRect();
+
+                if ((window.innerHeight - rect.bottom) > tooltipRect.height + 20) {
+                    tooltipEl.style.top = `${rect.bottom + 10}px`;
+                    tooltipEl.style.transform = 'translateY(0)';
+                }
+                else if (rect.top > tooltipRect.height + 20) {
+                    tooltipEl.style.top = `${rect.top - 10}px`;
+                    tooltipEl.style.transform = 'translateY(-100%)';
+                }
+                else {
+                    tooltipEl.style.top = `50%`;
+                    tooltipEl.style.transform = 'translateY(-50%)';
+                }
+
+                let leftPos = rect.left;
+                if (leftPos + tooltipRect.width > window.innerWidth) {
+                    leftPos = window.innerWidth - tooltipRect.width - 20;
+                }
+                tooltipEl.style.left = `${Math.max(20, leftPos)}px`;
+            }
+        }, 350); 
+        
+        DOMElements.tourPrevBtn.style.display = index === 0 ? 'none' : 'inline-flex';
+        DOMElements.tourNextBtn.style.display = index === this.steps.length - 1 ? 'none' : 'inline-flex';
+        DOMElements.tourFinishBtn.style.display = index === this.steps.length - 1 ? 'inline-flex' : 'none';
+    },
+    next() { this.showStep(this.currentStep + 1); },
+    prev() { this.showStep(this.currentStep - 1); },
+    async end() { 
+        DOMElements.tourOverlay.classList.add('hidden');
+        if (window.innerWidth <= 900) {
+            DOMElements.sidebar.classList.remove('open');
+        }
+        DOMElements.tourOverlay.style.clipPath = '';
+        if (state.userId) {
+            try {
+                const userRef = doc(db, 'users', state.userId);
+                await setDoc(userRef, { tourCompleted: true }, { merge: true });
+            } catch (error) {
+                console.error("Failed to save tour completion status:", error);
+            }
+        }
+    }
+};
+
+// --- Function to check if the tour should be offered (UNCHANGED) ---
+async function checkAndStartTour() {
+    if (!state.userId) return;
+    try {
+        const userRef = doc(db, 'users', state.userId);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists() && !userSnap.data().tourCompleted) {
+            setTimeout(() => {
+                DOMElements.welcomeTourModal.classList.remove('hidden');
+                DOMElements.overlay.classList.add('show');
+            }, 5000);
+        }
+    } catch (error) {
+        console.error("Error checking tour status:", error);
+    }
+}
+
+
+// --- INIT FUNCTION (UNCHANGED) ---
 const init = async () => {
   state.userId = localStorage.getItem('chatUserId') || crypto.randomUUID();
   localStorage.setItem('chatUserId', state.userId);
   state.sessionId = localStorage.getItem('chatSessionId') || null;
   state.selectedPersonalityId = localStorage.getItem('selectedPersonalityId') || null;
-
   applyTheme(state.currentTheme);
   try {
     await loadConfigLive();
@@ -1288,6 +1793,9 @@ const init = async () => {
     DOMElements.sendBtn.disabled = false;
   }
   await ensureUser().catch(e => console.error('ensureUser failed', e));
+  
+  await checkAndStartTour();
+
   subscribeSessions();
   if (state.sessionId) {
     const snap = await getDoc(doc(db,'sessions',state.userId,'items',state.sessionId));
@@ -1297,20 +1805,17 @@ const init = async () => {
   } else {
     startNewChat();
   }
-
-  // --- EVENT LISTENERS (UNCHANGED) ---
   DOMElements.menuBtn.addEventListener('click', () => {
     DOMElements.sidebar.classList.toggle('open');
     DOMElements.overlay.classList.toggle('show');
   });
-
   DOMElements.overlay.addEventListener('click', () => {
       DOMElements.sidebar.classList.remove('open');
       DOMElements.composerActionsPopup.classList.remove('show');
       DOMElements.composerActionsBtn.classList.remove('active');
       DOMElements.overlay.classList.remove('show');
+      DOMElements.welcomeTourModal.classList.add('hidden');
   });
-
   const handleNewChat = () => {
       startNewChat();
       if (window.innerWidth<=900) {
@@ -1328,7 +1833,6 @@ const init = async () => {
   DOMElements.scrollToBottomBtn.addEventListener('click', () => scrollToBottom('smooth'));
   const composerObserver = new ResizeObserver(entries => { document.documentElement.style.setProperty('--composer-height', `${entries[0].target.offsetHeight}px`); });
   composerObserver.observe(DOMElements.composer);
-
   DOMElements.composerActionsBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const isOpening = !DOMElements.composerActionsBtn.classList.contains('active');
@@ -1337,39 +1841,78 @@ const init = async () => {
       DOMElements.overlay.classList.toggle('show', isOpening);
   });
 
+  // --- Multi-File Input Logic (UNCHANGED) ---
   const fileUploadInput = document.getElementById('file-upload');
   const filePreviewContainer = document.getElementById('file-preview-container');
-  const filePreviewName = document.getElementById('file-preview-name');
-  const filePreviewCancel = document.getElementById('file-preview-cancel');
-
+  
   if (fileUploadInput) {
-    fileUploadInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      selectedFile = file;
-
+    fileUploadInput.addEventListener('change', (e) => {
       DOMElements.composerActionsPopup.classList.remove('show');
       DOMElements.composerActionsBtn.classList.remove('active');
       DOMElements.overlay.classList.remove('show');
 
-      DOMElements.composer.prepend(filePreviewContainer);
-      DOMElements.composer.classList.add('file-attached');
+      for (const file of e.target.files) {
+        const fileId = Date.now() + Math.random();
+        selectedFiles.push({ id: fileId, file: file });
 
-      if (filePreviewName) filePreviewName.textContent = file.name;
-      if (filePreviewContainer) filePreviewContainer.style.display = 'flex';
+        const item = document.createElement('div');
+        item.className = 'file-preview-item';
+        item.id = `file-preview-${fileId}`;
 
+        let preview;
+        if (file.type.startsWith('image/')) {
+          preview = document.createElement('img');
+          preview.className = 'file-preview-thumbnail';
+          preview.src = URL.createObjectURL(file);
+          preview.onload = () => URL.revokeObjectURL(preview.src); // Clean up memory
+        } else {
+          preview = document.createElement('div');
+          preview.className = 'file-preview-icon';
+          // Check if file is readable (text or pdf) vs unreadable
+          if (file.type.startsWith('text/') || file.type === 'application/pdf') {
+            preview.innerHTML = `<svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V8.188a2.625 2.625 0 0 0-.77-1.851l-4.439-4.44a2.625 2.625 0 0 0-1.851-.77H5.625ZM15 3.375v3.75h3.75a.375.375 0 0 1-.11.26l-4.44 4.439a.375.375 0 0 1-.26.11h-3.75A.375.375 0 0 1 9.75 11.5v-3.75a.375.375 0 0 1 .11-.26l4.44-4.44a.375.375 0 0 1 .26-.11Z"/></svg>`;
+          } else {
+            preview.innerHTML = `<svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm11.378-3.917c-.824 0-1.488.664-1.488 1.488s.664 1.488 1.488 1.488 1.488-.664 1.488-1.488-.664-1.488-1.488-1.488Zm-1.875 8.313a.75.75 0 0 1 .75-.75h2.25a.75.75 0 0 1 0 1.5h-2.25a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd" /></svg>`;
+          }
+        }
+        
+        const name = document.createElement('span');
+        name.className = 'file-preview-name';
+        name.textContent = file.name;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-file-btn';
+        removeBtn.innerHTML = '&times;';
+        removeBtn.title = 'Remove file';
+        removeBtn.onclick = () => removeFile(fileId);
+
+        item.appendChild(preview);
+        item.appendChild(name);
+        item.appendChild(removeBtn);
+        filePreviewContainer.appendChild(item);
+      }
+      
       e.target.value = '';
-      DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-  }
-
-  if (filePreviewCancel) {
-    filePreviewCancel.addEventListener('click', () => {
-      resetFileInput();
+      updateFileInputUI();
     });
   }
 
   DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+  DOMElements.tourNextBtn.addEventListener('click', () => tourManager.next());
+  DOMElements.tourPrevBtn.addEventListener('click', () => tourManager.prev());
+  DOMElements.tourFinishBtn.addEventListener('click', () => tourManager.end());
+  
+  DOMElements.startTourBtn.addEventListener('click', () => {
+      DOMElements.welcomeTourModal.classList.add('hidden');
+      DOMElements.overlay.classList.remove('show');
+      tourManager.start();
+  });
+  DOMElements.skipTourBtn.addEventListener('click', () => {
+      DOMElements.welcomeTourModal.classList.add('hidden');
+      DOMElements.overlay.classList.remove('show');
+      tourManager.end();
+  });
 };
 
 init();
