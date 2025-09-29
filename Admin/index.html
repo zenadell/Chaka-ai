@@ -1,336 +1,357 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Temple AI — Admin Panel</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Temple AI — Admin</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    
-    <div id="loginScreen" class="login-screen">
-      <div class="login-box">
-        <div class="brand">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z"></path><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-          <span class="brand-text">Temple AI</span>
-        </div>
-  
-        <p class="small" style="margin-bottom: 1.5rem;">Admin Panel Sign In</p>
-        <form id="loginForm" class="form-group">
-          <input id="loginEmail" type="text" placeholder="Admin email" required>
-          <input id="loginPassword" type="password" placeholder="Admin password" required>
-          <button type="submit" class="btn" style="width:100%">Sign In</button>
-        </form>
-      </div>
-    </div>
-    
-    <div id="toastContainer" class="toast-container"></div>
-    
-  
-    <div>
-        <input type="checkbox" id="mobile-menu-toggle">
-        
-        <div class="mobile-header">
-            <label for="mobile-menu-toggle" class="mobile-menu-btn" aria-label="Open menu">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-            </label>
-            <div class="brand" style="margin: 0 auto;">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z"></path><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+    <input type="checkbox" id="mobile-menu-toggle" class="hidden">
+    <header class="mobile-header">
+        <label for="mobile-menu-toggle" class="mobile-menu-btn" aria-label="Open menu">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+        </label>
+        <div class="brand">Chaka</div>
+    </header>
+    <label for="mobile-menu-toggle" class="mobile-overlay"></label>
+
+    <div class="app loading" id="app">
+        <aside class="sidebar">
+            <div class="brand">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+                </svg>
+                Chaka
             </div>
-            <div style="width: 44px;"></div>
-        </div>
-
-        <label for="mobile-menu-toggle" class="mobile-overlay"></label>
-
-        
-<div id="app" class="app loading">
-            <aside class="sidebar">
-                <div class="brand">
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z"></path><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                 
-   <span class="brand-text">Temple AI</span>
-                </div>
-                <div class="nav">
-                    <button data-view="dashboard" class="active">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 
- 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
-                      <span class="nav-text">Dashboard</span>
-                    </button>
-        
-                    <button data-view="moderation">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                      <span class="nav-text">Moderation</span>
-                    </button>
-     
-                   <button data-view="personalities">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.28-1.25-.743-1.67a1 1 0 01-.257-.33M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.28-1.25.743-1.67a1 1 0 00.257-.33M12 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                      <span class="nav-text">Personalities</span>
-                 </button>
-                    <button data-view="apikeys">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7h2a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2h2m4-4h2a2 2 0 012 2v2H9V5a2 2 0 012-2zm0 0V3m0 2v2m0-2h.01M12 12h.01M12 16h.01M16 12h.01M16 16h.01M8 12h.01M8 16h.01M4 12h.01M4 16h.01"></path></svg>
-        
-                       <span class="nav-text">API Keys</span>
-                    </button>
-                    <button data-view="config">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 
- 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                      <span class="nav-text">Bot Settings</span>
-                    </button>
-         
-                   <button data-view="users">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M15 21a6 6 0 00-9-5.197m0 0A5.978 5.978 0 0112 13a5.979 5.979 0 012.572 1.115"></path></svg>
-                      <span class="nav-text">Users</span>
-       
-                     </button>
-                    <button data-view="sessions">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path></svg>
-   
-                           <span class="nav-text">Sessions</span>
-                    </button>
-                    <button data-view="chats">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 
- 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
-                      <span class="nav-text">Live Chat Viewer</span>
-                    </button>
-                    <button data-view="logs">
-                     
-   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
-                      <span class="nav-text">Activity / Logs</span>
-                    </button>
-           
+            <nav class="nav">
+                <button data-view="dashboard" class="active">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                    Dashboard
+                </button>
+                <button data-view="moderation">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    Moderation
+                </button>
+                <button data-view="personalities">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+                    Personalities
+                </button>
+                <button data-view="apikeys">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7h1a2 2 0 012 2v5a2 2 0 01-2 2h-1m-6 0H7a2 2 0 01-2-2V9a2 2 0 012-2h1M9 12h6" /></svg>
+                    API Keys
+                </button>
+                <button data-view="config">
+                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.343 3.94c.09-.542.56-1.025 1.11-1.11a12.004 12.004 0 015.08 0c.55.085 1.02.568 1.11 1.11.09.542.09 1.097 0 1.64s-.09 1.097 0 1.64c.09.542.56 1.025 1.11 1.11a12.004 12.004 0 015.08 0c.55.085 1.02.568 1.11 1.11.09.542.09 1.097 0 1.64s-.09 1.097 0 1.64c.09.542.56 1.025 1.11 1.11a12.004 12.004 0 015.08 0c.55.085 1.02.568 1.11 1.11.09.542.09 1.097 0 1.64s-.09 1.097 0 1.64c-.09.542-.56 1.025-1.11 1.11a12.004 12.004 0 01-5.08 0c-.55-.085-1.02-.568-1.11-1.11-.09-.542-.09-1.097 0-1.64s.09-1.097 0-1.64c-.09-.542-.56-1.025-1.11-1.11a12.004 12.004 0 01-5.08 0c-.55-.085-1.02-.568-1.11-1.11-.09-.542-.09-1.097 0-1.64s.09-1.097 0-1.64zM12 10.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3z" /></svg>
+                    Configuration
+                </button>
+                <button data-view="users">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M15 21a6 6 0 00-9-5.197m0 0A5.995 5.995 0 0112 12a5.995 5.995 0 013 5.197" /></svg>
+                    Users
+                </button>
+                <button data-view="sessions">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2h2" /></svg>
+                    Sessions
+                </button>
+                <button data-view="chats">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                    Live Chats
+                </button>
+                <button data-view="logs">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" /></svg>
+                    Logs
+                </button>
                  <button id="signOutBtn">
-                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                      <span class="nav-text">Sign out</span>
-                 
-           </button>
-                </div>
-            </aside>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" /></svg>
+                    Sign Out
+                </button>
+            </nav>
+        </aside>
 
-            <main class="main">
-              <div class="main-content">
+        <main class="main">
+            <div class="main-content">
                 <div class="topbar">
                     <div>
-    
-                         <h2 id="pageTitle" class="page-title">Dashboard</h2>
-                        <p id="pageSubtitle" class="page-subtitle">Admin Control Panel — real-time overview</p>
+                        <h1 id="pageTitle">Dashboard</h1>
+                        <p id="pageSubtitle" class="page-subtitle"></p>
                     </div>
                     <div class="admin-info">
-      
-                         <div id="adminStatus" class="small">Signed in as</div>
-                        <div id="adminEmail">--</div>
+                        <span id="adminStatus" class="small">Loading...</span>
+                        <span id="adminEmail">--</span>
                     </div>
                 </div>
 
-                <section id="view-dashboard">
-                    <div class="stat-grid" style="margin-bottom: 1.5rem;">
-                      <div class="stat-card"><div class="small">Total Users</div><div id="totalUsers" class="value">0</div></div>
-                      <div class="stat-card"><div class="small">Active Sessions</div><div id="totalSessions" class="value">0</div></div>
+                <div id="view-dashboard">
+                    <div class="stat-grid">
+                        <div class="stat-card">
+                            <p class="small">Total Users</p>
+                            <div class="value" id="totalUsers">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <p class="small">Total Sessions</p>
+                            <div class="value" id="totalSessions">0</div>
+                        </div>
                     </div>
-   
-                     
-                    <div class="grid">
+                    <div class="card" style="margin-top:1.5rem">
+                         <div class="card-header" style="margin-bottom:0; padding-bottom: 1rem;">
+                            <h3>Recent Activity</h3>
+                        </div>
+                        <div id="recentList" class="list" style="padding-top:1.5rem"></div>
+                    </div>
+                </div>
+
+                <div id="view-moderation" class="hidden">
+                     <div class="grid">
                         <div class="card">
-                            <div class="card-header"><h3>Quick Controls</h3></div>
-       
-                             <div class="form-group">
-                                <label for="cfgTheme">Theme color (CSS / gradient allowed)</label>
-                                <input id="cfgTheme" type="text" placeholder="e.g. #4f46e5 or linear-gradient(...)">
-                            </div>
-                            <div class="row">
-                                <button id="saveQuickConfig" class="btn ghost">Save Theme</button>
-     
-                                 <button id="toggleActiveBtn" class="btn">Deactivate Bot</button>
-                            </div>
+                            <div class="card-header"><h3>Blocked Users</h3></div>
+                            <div id="blocked-users-list" class="list-view"></div>
                         </div>
-
-                  
-                 <div class="card">
-                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                                <h3>Realtime Activity</h3>
-                                <p class="small">Auto-refreshing</p>
-                            </div>
-     
-                             <div id="recentList" class="list"></div>
+                        <div class="card">
+                            <div class="card-header"><h3>Blocked Sessions</h3></div>
+                            <div id="blocked-sessions-list" class="list-view"></div>
                         </div>
                     </div>
-                </section>
-               
-  
-                <section id="view-moderation" class="hidden">
-                  <div class="grid">
-                    <div class="card">
-                      <div class="card-header"><h3>Blocked Users</h3></div>
-                 
-           <div id="blocked-users-list" class="list"></div>
-                    </div>
-                    <div class="card">
-                      <div class="card-header"><h3>Blocked Sessions</h3></div>
-                      <div id="blocked-sessions-list" class="list"></div>
-    
-                     </div>
-                  </div>
-                </section>
+                </div>
 
-                <section id="view-personalities" class="hidden">
-                    <div class="grid personalities-grid">
+                <div id="view-personalities" class="hidden">
+                    <div class="personalities-grid">
                         <div class="card add-personality-card">
-                            <div class="card-header">
-                                <h3>Add New Personality</h3>
-                                <p class="small" style="margin-top: 0.25rem;">Create a new persona for the bot.</p>
-                            </div>
+                            <div class="card-header"><h3>Add Personality</h3></div>
                             <form id="addPersonalityForm">
                                 <div class="form-group">
-                                    <label for="personalityName">Personality Name</label>
-                                    <input id="personalityName" type="text" placeholder="e.g., Sarcastic Assistant" required>
+                                    <label for="personalityName">Name</label>
+                                    <input type="text" id="personalityName" required placeholder="e.g., Sarcastic Assistant">
                                 </div>
                                 <div class="form-group">
                                     <label for="personalityDescription">Description (Optional)</label>
-                                    <input id="personalityDescription" type="text" placeholder="e.g., A witty and sarcastic assistant.">
+                                    <input type="text" id="personalityDescription" placeholder="A short, one-line description">
                                 </div>
                                 <div class="form-group">
-                                    <label for="personalityPersona">Persona Prompt</label>
-                                    <textarea id="personalityPersona" placeholder="e.g., You are a witty and sarcastic assistant..." required></textarea>
+                                    <label for="personalityPersona">Persona / System Prompt</label>
+                                    <textarea id="personalityPersona" required placeholder="You are a helpful assistant that..."></textarea>
                                 </div>
-                                <button type="submit" class="btn" style="width: 100%;">Add Personality</button>
+                                <div class="form-group">
+                                    <label for="personalityVideoFile">Preview Video (Optional)</label>
+                                    <input type="file" id="personalityVideoFile" accept="video/*">
+                                </div>
+                                <button type="submit" class="btn">Add Personality</button>
                             </form>
                         </div>
                         <div class="card personalities-list-card">
-                           <div class="card-header">
-                                <h3>Existing Personalities</h3>
-                                <p class="small" style="margin-top: 0.25rem;">Manage all available AI personas.</p>
-                            </div>
-                            <div id="personalitiesList" class="list">
-                                </div>
+                            <div class="card-header"><h3>Existing Personalities</h3></div>
+                            <div id="personalitiesList" class="list list-view"></div>
                         </div>
                     </div>
-                </section>
-       
-                <section id="view-apikeys" class="hidden">
-                  <div class="card">
-                    <div class="card-header"><h3>API Keys</h3></div>
-                    <div id="apiKeysList" style="border: 1px solid var(--border-default); border-radius: var(--radius-lg); overflow: hidden;"></div>
-                    <div style="height:1.5rem"></div>
-                    <h4>Add New Key</h4>
-                    <div class="row" style="margin-top: 1rem;">
-                      <select id="newKeyType"><option value="text">Text (Gemini)</option><option value="image">Image</option><option value="tts">TTS</option><option value="code">Codegen</option></select>
-   
-                       <input id="newKeyInput" type="text" placeholder="API key string" style="flex:1" />
-                      <button id="addApiKeyBtn" class="btn">Add Key</button>
+                </div>
+
+                <div id="view-apikeys" class="hidden">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Manage API Keys</h3>
+                        </div>
+                        <div id="apiKeysList" class="list-view"></div>
                     </div>
-                  </div>
-           
-             </section>
-          
-                <section id="view-config" class="hidden">
-                  <div class="card">
-                    <div class="card-header"><h3>Bot Settings</h3></div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Add New API Key</h3>
+                        </div>
+                        <div class="form-group">
+                            <label for="newKeyInput">API Key</label>
+                            <input type="text" id="newKeyInput" placeholder="Enter new API key">
+                        </div>
+                        <div class="form-group">
+                             <label for="newKeyType">Key Type</label>
+                            <select id="newKeyType">
+                                <option value="text">Text (Gemini)</option>
+                                <option value="image">Image (Stability)</option>
+                            </select>
+                        </div>
+                        <button id="addApiKeyBtn" class="btn">Add Key</button>
+                    </div>
+                </div>
+
+                <div id="view-config" class="hidden">
                     <div class="grid">
-     
-                       <div class="form-group"><label for="cfgBotName">Bot name</label><input id="cfgBotName" type="text" placeholder="Temple AI"></div>
-                      <div class="form-group"><label for="cfgAllowFile">Allow file upload</label><select id="cfgAllowFile"><option value="true">True</option><option value="false">False</option></select></div>
-                      <div class="form-group"><label for="cfgBotBubble">Bot bubble (gradient or color)</label><input id="cfgBotBubble" type="text" placeholder="#eceff1"></div>
-                
-                 <div class="form-group"><label for="cfgUserBubble">User bubble (gradient or color)</label><input id="cfgUserBubble" type="text" placeholder="linear-gradient(...)"></div>
-                      <div class="form-group"><label>Profile image</label><div class="file-input"><input id="profileImageFile" type="file" accept="image/*"/><button id="uploadProfileBtn" class="btn">Upload</button></div></div>
-                      <div class="form-group"><label for="cfgActive">Bot Active</label><select id="cfgActive"><option value="true">Active</option><option value="false">Deactivated</option></select></div>
-                    </div>
-       
-                     <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle);">
-                      <button id="saveConfigBtn" class="btn">Save All Settings</button>
-                    </div>
-                  </div>
-                </section>
-          
-       
-                   <section id="view-users" class="hidden">
-                  <div class="card">
-                    <div class="card-header"><h3>Users</h3></div>
-                    <div class="list" id="usersList"></div>
-                  </div>
-         
-                </section>
-          
-                <section id="view-sessions" class="hidden">
-                  <div class="card">
-                    <div class="grid">
-                      <div>
-   
+                        <div class="card">
+                            <div class="card-header"><h3>Bot Settings</h3></div>
                              <div class="form-group">
-                          <label for="sessionsUserSelect">Select User</label><select id="sessionsUserSelect"></select>
+                                <label for="cfgBotName">Bot Name</label>
+                                <input type="text" id="cfgBotName">
+                            </div>
+                            <div class="form-group">
+                                <label for="profileImageFile">Profile Image</label>
+                                <input type="file" id="profileImageFile" accept="image/*">
+                                <button class="btn ghost" id="uploadProfileBtn" style="margin-top:0.5rem">Upload</button>
+                            </div>
+                            <div class="form-group">
+                                <label for="cfgAllowFile">Allow File Upload</label>
+                                <select id="cfgAllowFile">
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                            <button class="btn" id="saveConfigBtn">Save Settings</button>
                         </div>
-                        <div id="sessionsList" class="list"></div>
-                      </div>
-                      <div>
-                        <label>Session Messages</label>
-                        <div id="sessionMessages" class="list list-view" style="margin-top: 0.5rem;"></div>
- 
-                           </div>
+
+                        <div class="card">
+                            <div class="card-header"><h3>Appearance</h3></div>
+                             <div class="form-group">
+                                <label for="cfgTheme">Theme Color</label>
+                                <input type="text" id="cfgTheme" placeholder="e.g., #4f46e5 or linear-gradient(...)">
+                            </div>
+                            <div class="form-group">
+                                <label for="cfgBotBubble">Bot Bubble Color</label>
+                                <input type="text" id="cfgBotBubble" placeholder="#eceff1">
+                            </div>
+                            <div class="form-group">
+                                <label for="cfgUserBubble">User Bubble Color</label>
+                                <input type="text" id="cfgUserBubble" placeholder="#ffffff">
+                            </div>
+                             <button class="btn" id="saveQuickConfig">Save Appearance</button>
+                        </div>
                     </div>
-                  </div>
-                </section>
-          
-               
-                 <section id="view-chats" class="hidden">
-                  <div class="card">
-                    <div class="card-header">
-                      <h3>Live Chat Viewer</h3>
-                      <p class="small" style="margin-top: 0.25rem;">Select a user and session to watch messages in real-time.</p>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Bot Status</h3>
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgActive">Global Status</label>
+                            <select id="cfgActive">
+                                <option value="true">Active</option>
+                                <option value="false">Inactive</option>
+                            </select>
+                        </div>
+                        <button class="btn danger" id="toggleActiveBtn">Deactivate Bot</button>
                     </div>
-                    <div class="row">
-                      <select id="liveUserSelect" style="flex:1;"></select>
-                      <select id="liveSessionSelect" style="flex:1;"></select>
-          
-                     <button id="watchBtn" class="btn">Watch</button>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Prompt Suggestions</h3>
+                            <p class="small">Configure the suggestion buttons shown on a new chat screen. (Max 6)</p>
+                        </div>
+                        <div id="promptSuggestionsList" class="list"></div>
+                        <div id="addSuggestionSection" style="margin-top: 1.5rem; border-top: 1px solid var(--border-subtle); padding-top: 1.5rem;">
+                            <h4>Add New Suggestion</h4>
+                            <div class="form-group row" style="gap: 1rem;">
+                                <input type="text" id="newSuggestionIcon" placeholder="Icon (e.g., 🧠)" style="width: 100px;">
+                                <input type="text" id="newSuggestionTitle" placeholder="Button Title (e.g., Explain a concept)" style="flex-grow: 1;">
+                            </div>
+                            <div class="form-group">
+                                <textarea id="newSuggestionPrompt" placeholder="Full prompt text that will be sent..."></textarea>
+                            </div>
+                            <button id="addSuggestionBtn" class="btn">Add Suggestion</button>
+                        </div>
                     </div>
-                    <div style="height:1.5rem"></div>
-                    <div id="liveChatArea" class="list list-view"></div>
-                  </div>
-    
-                     </section>
-          
-                <section id="view-logs" class="hidden">
-                  <div class="card">
-                    <div class="card-header"><h3>Activity Logs</h3></div>
-                   
-                   <div id="logsList" class="list"></div>
-                  </div>
-                </section>
-              </div>
-            </main>
-        </div>
-    </div>
-    
-    <div id="editPersonalityModal" class="modal hidden">
-        <div class="modal-overlay" id="closeEditModalOverlay"></div>
-        <div class="modal-content card">
-            <div class="card-header">
-                <h3>Edit Personality</h3>
+                </div>
+
+                <div id="view-users" class="hidden">
+                    <div id="usersList" class="list"></div>
+                </div>
+
+                <div id="view-sessions" class="hidden">
+                    <div class="card">
+                        <div class="form-group">
+                            <label for="sessionsUserSelect">Select User</label>
+                            <select id="sessionsUserSelect"></select>
+                        </div>
+                    </div>
+                    <div class="grid">
+                        <div class="card">
+                            <div class="card-header"><h3>Sessions</h3></div>
+                            <div id="sessionsList"></div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><h3>Messages</h3></div>
+                            <div id="sessionMessages"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-chats" class="hidden">
+                    <div class="card">
+                        <div class="row" style="align-items: flex-end; gap: 1rem;">
+                            <div class="form-group" style="flex-grow: 1;">
+                                <label for="liveUserSelect">User</label>
+                                <select id="liveUserSelect"></select>
+                            </div>
+                            <div class="form-group" style="flex-grow: 1;">
+                                <label for="liveSessionSelect">Session</label>
+                                <select id="liveSessionSelect"></select>
+                            </div>
+                            <button class="btn" id="watchBtn">Watch</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h3>Live Chat</h3></div>
+                        <div id="liveChatArea" style="max-height: 500px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
+                <div id="view-logs" class="hidden">
+                    <div class="card">
+                        <div class="card-header"><h3>Activity Logs</h3></div>
+                        <div id="logsList"></div>
+                    </div>
+                </div>
             </div>
-            <form id="editPersonalityForm">
-                <input type="hidden" id="editPersonalityId">
-                <div class="form-group">
-                    <label for="editPersonalityName">Personality Name</label>
-                    <input id="editPersonalityName" type="text" required>
-                </div>
-                <div class="form-group">
-                    <label for="editPersonalityDescription">Description (Optional)</label>
-                    <input id="editPersonalityDescription" type="text" placeholder="A short, one-line description.">
-                </div>
-                <div class="form-group">
-                    <label for="editPersonalityPersona">Persona Prompt</label>
-                    <textarea id="editPersonalityPersona" required></textarea>
-                </div>
-                <div class="row" style="justify-content: flex-end;">
-                    <button type="button" id="cancelEditBtn" class="btn ghost">Cancel</button>
-                    <button type="submit" class="btn">Save Changes</button>
-                </div>
-            </form>
-        </div>
+        </main>
     </div>
 
-<script type="module" src="script.js"></script>
+    <div id="editPersonalityModal" class="modal hidden">
+        <div id="closeEditModalOverlay" class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="card">
+                <div class="card-header"><h3>Edit Personality</h3></div>
+                <form id="editPersonalityForm">
+                    <input type="hidden" id="editPersonalityId">
+                    <div class="form-group">
+                        <label for="editPersonalityName">Name</label>
+                        <input type="text" id="editPersonalityName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editPersonalityDescription">Description (Optional)</label>
+                        <input type="text" id="editPersonalityDescription">
+                    </div>
+                    <div class="form-group">
+                        <label for="editPersonalityPersona">Persona / System Prompt</label>
+                        <textarea id="editPersonalityPersona" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Preview Video</label>
+                        <div id="currentVideoStatus" class="small" style="margin-bottom: 0.75rem;"></div>
+                        <label for="editPersonalityVideoFile" class="btn ghost" style="margin-top: 0.5rem; display: inline-block; cursor: pointer;">
+                            <span>Upload New Video</span>
+                            <input type="file" id="editPersonalityVideoFile" accept="video/*" class="hidden">
+                        </label>
+                        <button type="button" id="removeVideoBtn" class="btn danger hidden" style="margin-left: 0.5rem;">Remove Video</button>
+                    </div>
+                    <div class="row" style="justify-content: flex-end; margin-top: 1.5rem; border-top: 1px solid var(--border-subtle); padding-top: 1.5rem;">
+                        <button type="button" id="cancelEditBtn" class="btn ghost">Cancel</button>
+                        <button type="submit" class="btn">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="login-screen" id="loginScreen">
+         <div class="login-box">
+             <div class="brand">Admin Panel</div>
+             <p class="small" style="margin: 1rem 0 2rem;">Please sign in to continue.</p>
+             <form id="loginForm">
+                 <input type="text" id="loginEmail" placeholder="Email" required>
+                 <input type="password" id="loginPassword" placeholder="Password" required>
+                 <button type="submit" class="btn" style="width:100%">Sign In</button>
+             </form>
+         </div>
+    </div>
+
+    <div id="toastContainer" class="toast-container"></div>
+    <script type="module" src="script.js"></script>
 </body>
 </html>
