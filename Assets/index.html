@@ -45,6 +45,8 @@
       
       <div id="composer">
         <div id="status-row"></div>
+        <div id="api-status-row" class="hidden"></div>
+        
         <div id="input-wrapper">
           
           <button id="composer-actions-btn" class="icon-btn" title="More options" style="display: none;">
@@ -58,29 +60,20 @@
               <div id="file-upload-wrapper" title="Upload File">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.441l-7.81 7.81a1.5 1.5 0 002.122 2.122l7.81-7.81" /></svg>
                   <span>Add file</span>
-                  <input id="file-upload" type="file"/>
+                  <input id="file-upload" type="file" multiple accept="image/png, image/jpeg, image/webp, text/plain, application/pdf, text/html, text/css, text/javascript, .html, .css, .js, .py, .jsx"/>
               </div>
           </div>
           
-          <div id="file-preview-container" style="display: none;">
-              <span id="file-preview-name"></span>
-              <button id="file-preview-cancel" title="Remove file">&times;</button>
-          </div>
+          <div id="file-preview-container" style="display: none;"></div>
 
           <textarea id="message-input" rows="1" placeholder="say whatever!..."></textarea>
           
          <button id="send-btn" title="Send" disabled>
-  <span class="mic-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 1.75a3.25 3.25 0 0 0-3.25 3.25v7.5a3.25 3.25 0 0 0 6.5 0v-7.5A3.25 3.25 0 0 0 12 1.75ZM16.25 12.5a.75.75 0 0 1-1.5 0v-7.5a1.75 1.75 0 0 0-3.5 0v7.5a.75.75 0 0 1-1.5 0v-7.5a3.25 3.25 0 0 1 6.5 0v7.5Z" /><path d="M4.75 10a.75.75 0 0 0-1.5 0v2.5a8.75 8.75 0 0 0 8.75 8.75v3.5a.75.75 0 0 0 1.5 0v-3.5a8.75 8.75 0 0 0 8.75-8.75v-2.5a.75.75 0 0 0-1.5 0v2.5a7.25 7.25 0 0 1-7.25 7.25A7.25 7.25 0 0 1 4.75 12.5v-2.5Z" /></svg></span>
-  <span class="send-icon" style="display: none;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg></span>
-  <span class="stop-icon" style="display: none;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 265.405 265.405" xml:space="preserve" fill="currentColor" width="22" height="22">
-    <g>
-        <path style="fill:#fff;" d="M132.703,0C59.53,0,0,59.53,0,132.702s59.53,132.702,132.703,132.702 c73.172,0,132.702-59.53,132.702-132.702S205.875,0,132.703,0z M132.703,250.405C67.801,250.405,15,197.604,15,132.702 S67.801,15,132.703,15c64.901,0,117.702,52.801,117.702,117.702S197.604,250.405,132.703,250.405z"/>
-        <path style="fill:#fff;" d="M174.816,73.089H90.589c-9.649,0-17.5,7.851-17.5,17.5v84.227c0,9.649,7.851,17.5,17.5,17.5h84.227 c9.649,0,17.5-7.851,17.5-17.5V90.589C192.316,80.94,184.465,73.089,174.816,73.089z M177.316,174.816c0,1.355-1.145,2.5-2.5,2.5 H90.589c-1.355,0-2.5-1.145-2.5-2.5V90.589c0-1.355,1.145-2.5,2.5-2.5h84.227c1.355,0,2.5,1.145,2.5,2.5V174.816z"/>
-    </g>
-  </svg></span>
-  <span class="spinner" style="display: none;"></span>
-</button>
-
+            <span class="mic-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 1.75a3.25 3.25 0 0 0-3.25 3.25v7.5a3.25 3.25 0 0 0 6.5 0v-7.5A3.25 3.25 0 0 0 12 1.75ZM16.25 12.5a.75.75 0 0 1-1.5 0v-7.5a1.75 1.75 0 0 0-3.5 0v7.5a.75.75 0 0 1-1.5 0v-7.5a3.25 3.25 0 0 1 6.5 0v7.5Z" /><path d="M4.75 10a.75.75 0 0 0-1.5 0v2.5a8.75 8.75 0 0 0 8.75 8.75v3.5a.75.75 0 0 0 1.5 0v-3.5a8.75 8.75 0 0 0 8.75-8.75v-2.5a.75.75 0 0 0-1.5 0v2.5a7.25 7.25 0 0 1-7.25 7.25A7.25 7.25 0 0 1 4.75 12.5v-2.5Z" /></svg></span>
+            <span class="send-icon" style="display: none;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg></span>
+            <span class="stop-icon" style="display: none;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 265.405 265.405" xml:space="preserve" fill="currentColor" width="22" height="22"><g><path style="fill:#fff;" d="M132.703,0C59.53,0,0,59.53,0,132.702s59.53,132.702,132.703,132.702 c73.172,0,132.702-59.53,132.702-132.702S205.875,0,132.703,0z M132.703,250.405C67.801,250.405,15,197.604,15,132.702 S67.801,15,132.703,15c64.901,0,117.702,52.801,117.702,117.702S197.604,250.405,132.703,250.405z"/><path style="fill:#fff;" d="M174.816,73.089H90.589c-9.649,0-17.5,7.851-17.5,17.5v84.227c0,9.649,7.851,17.5,17.5,17.5h84.227 c9.649,0,17.5-7.851,17.5-17.5V90.589C192.316,80.94,184.465,73.089,174.816,73.089z M177.316,174.816c0,1.355-1.145,2.5-2.5,2.5 H90.589c-1.355,0-2.5-1.145-2.5-2.5V90.589c0-1.355,1.145-2.5,2.5-2.5h84.227c1.355,0,2.5,1.145,2.5,2.5V174.816z"/></g></svg></span>
+            <span class="spinner" style="display: none;"></span>
+          </button>
 
         </div>
       </div>
@@ -90,9 +83,9 @@
 
   <div id="continuation-modal" class="modal-overlay hidden">
     <div class="modal-content">
-      <button id="cancel-modal-btn" class="modal-close-btn" title="Cancel">&times;</button>
+      <button class="modal-close-btn" title="Cancel">&times;</button>
       <h3>Continue Chat?</h3>
-      <p>You have a previous conversation with this personality. Would you like to continue it or start a new one?</p>
+      <p>You have a previous conversation with this personality. you wanna continue it or start a new one?</p>
       <div class="modal-actions">
         <button id="continue-chat-btn" class="btn">Continue Last Chat</button>
         <button id="new-chat-modal-btn" class="btn ghost">Start New Chat</button>
@@ -100,6 +93,60 @@
     </div>
   </div>
 
-<script type="module" src="script.js"></script>
+  <div id="personality-preview-modal" class="modal-overlay hidden">
+      <div class="modal-content preview">
+          <video id="preview-video" muted playsinline loop autoplay></video>
+          <div class="preview-overlay"></div>
+          <div class="preview-content">
+              <div class="preview-header">
+                  <h3 id="preview-personality-name"></h3>
+                  <span>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="3" fill="currentColor"/></svg>
+                      Live Preview
+                  </span>
+              </div>
+              <div class="preview-footer">
+                  <p>This is an example of how this personality responds. Ready to switch?</p>
+                  <div class="modal-actions">
+                      <button id="confirm-personality-switch-btn" class="btn">Switch Personality</button>
+                      <button id="cancel-personality-switch-btn" class="btn ghost">Cancel</button>
+                  </div>
+              </div>
+          </div>
+          <button class="modal-close-btn" title="Cancel">&times;</button>
+      </div>
+  </div>
+
+  <div id="welcome-tour-modal" class="modal-overlay hidden">
+      <div class="modal-content">
+          <dotlottie-wc src="https://lottie.host/e075775a-c999-47f3-b180-23a5989d3170/3L63wVd2Kn.lottie" style="width: 180px; height: 180px; margin: -2rem auto 0.5rem;" speed="1" autoplay loop></dotlottie-wc>
+          <h3>Welcome to Chaka!</h3>
+          <p>Ready for a quick tour to see how everything works? It only takes a minute!</p>
+          <div class="modal-actions">
+              <button id="start-tour-btn" class="btn">Take the Tour</button>
+              <button id="skip-tour-btn" class="btn ghost">No, Thanks</button>
+          </div>
+      </div>
+  </div>
+
+  <div id="tour-overlay" class="hidden">
+      <div class="tour-spotlight"></div>
+      <div class="tour-tooltip">
+          <div class="tour-content">
+              <h4 id="tour-title"></h4>
+              <p id="tour-text"></p>
+          </div>
+          <div class="tour-navigation">
+              <span id="tour-step-counter"></span>
+              <div class="tour-buttons">
+                  <button id="tour-prev-btn" class="btn ghost">Previous</button>
+                  <button id="tour-next-btn" class="btn">Next</button>
+                  <button id="tour-finish-btn" class="btn">Finish</button>
+              </div>
+          </div>
+      </div>
+  </div>
+
+<script type="module" src="script"></script>
 </body>
 </html>
