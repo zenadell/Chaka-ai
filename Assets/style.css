@@ -10,21 +10,23 @@
 
   /* Light Theme */
   --accent-light: #4f46e5;
-  --bg-light: #fffefc;
-  --surface-light: #f0efe7;
+  --bg-light: #faf9f7;
+  --surface-light: #fffefc;
   --glass-light: rgba(255, 255, 255, 0.8);
   --text-primary-light: #141414;
   --text-secondary-light: #6b7280;
+  --user-text-light: #f0efe7;
   --border-light: #e5e7eb;
   --shadow-light: 0 8px 32px rgba(0, 0, 0, 0.08);
   --shadow-input-light: 0 -8px 24px rgba(0, 0, 0, 0.08);
   /* Dark Theme */
   --accent-dark: #818cf8;
-  --bg-dark: #282828;
-  --surface-dark: #141414;
-  --glass-dark: rgba(20, 20, 20, 0.75);
+  --bg-dark: #303030;
+  --surface-dark: #282828;
+  --glass-dark: rgba(38, 38, 38, 0.75);
   --text-primary-dark: #fffefc;
   --text-secondary-dark: #9ca3af;
+  --user-text-dark: #383838;
   --border-dark: #374151;
   --shadow-dark: 0 8px 32px rgba(0, 0, 0, 0.2);
   --shadow-input-dark: 0 -8px 24px rgba(190, 190, 255, 0.08);
@@ -37,6 +39,7 @@
   --glass: var(--glass-light);
   --text-primary: var(--text-primary-light);
   --text-secondary: var(--text-secondary-light);
+  --user-text: var(--user-text-light);
   --border: var(--border-light);
   --shadow: var(--shadow-light);
   --shadow-input: var(--shadow-input-light);
@@ -48,6 +51,7 @@
   --glass: var(--glass-dark);
   --text-primary: var(--text-primary-dark);
   --text-secondary: var(--text-secondary-dark);
+  --user-text: var(--user-text-dark);
   --border: var(--border-dark);
   --shadow: var(--shadow-dark);
   --shadow-input: var(--shadow-input-dark);
@@ -274,11 +278,6 @@ button {
 #chat-messages {
   flex-grow: 1;
   min-height: 0;
-  /* The core fix for manual scrolling is here: 
-    Changed from 'overflow-y: auto;' to 'overflow-y: scroll;' 
-    to ensure consistent scrollbar presence and prevent any default 'smart' 
-    auto-scrolling behavior in the container.
-  */
   overflow-y: scroll;
   display: flex;
   flex-direction: column;
@@ -335,7 +334,7 @@ button {
   }
 }
 .message.user {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: var(--user-text);
   color: white;
 }
 .message-group.user .message {
@@ -368,17 +367,6 @@ button {
   border-bottom-left-radius: var(--radius-sm);
 }
 
-.message-content p {
-  margin: 0 0 0.5em 0;
-}
-.message-content p:last-child {
-  margin-bottom: 0;
-}
-.message-content ul,
-.message-content ol {
-  padding-left: 1.5em;
-  margin: 0.5em 0;
-}
 .message-content strong {
   font-weight: 700;
 }
@@ -388,7 +376,6 @@ button {
 }
 .message-content pre {
   position: relative;
-  margin: 1em 0;
 }
 .message-content pre code.hljs {
   border-radius: var(--radius-md);
@@ -428,6 +415,74 @@ button {
 .copy-message-btn:active,
 .copy-code-btn:active {
   transform: scale(0.95);
+}
+
+/* --- ✅ [NEW] TTS (TEXT-TO-SPEECH) BUTTON --- */
+.tts-btn {
+  position: absolute;
+  bottom: 0.5rem;
+  /* Position it to the left of the copy button */
+  right: 2.75rem;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition-fast), transform var(--transition-fast),
+    background-color var(--transition-fast);
+  cursor: pointer;
+}
+
+.message:hover .tts-btn {
+  opacity: 1;
+}
+
+.tts-btn:hover {
+  background: var(--bg);
+}
+
+.tts-btn:active {
+  transform: scale(0.95);
+}
+
+.tts-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* State Management for Icons */
+.tts-btn .play-icon {
+  display: block;
+}
+
+.tts-btn .pause-icon,
+.tts-btn .spinner {
+  display: none;
+}
+
+.tts-btn.playing .play-icon,
+.tts-btn.loading .play-icon,
+.tts-btn.loading .pause-icon {
+  display: none;
+}
+
+.tts-btn.playing .pause-icon {
+  display: block;
+}
+
+.tts-btn.loading .spinner {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
 
 .typing-indicator {
@@ -495,7 +550,7 @@ button {
   height: 20px;
 }
 
-/* --- ⌨️ [UPDATED] COMPOSER AREA --- */
+/* --- ⌨️ COMPOSER AREA (UNCHANGED) --- */
 #composer {
   position: absolute;
   bottom: 0;
@@ -835,19 +890,33 @@ button {
   }
 }
 
-/* --- ✅ [UPDATED] FILE PREVIEW & OTHER UI ELEMENTS --- */
+/* --- ✅ [MODIFIED] ADVANCED UI ELEMENTS & STYLES --- */
+
+/* Base Message Content & Text Formatting */
 .message-content {
   font-family: "Manrope", system-ui, sans-serif;
   font-size: 0.95rem;
-  line-height: 1.65;
+  line-height: 1.6;
   color: var(--text-primary, #eaeaea);
   white-space: pre-wrap;
-  word-wrap: break-word;
   max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
+/* ✅ [MODIFIED] Reduced paragraph margins for tighter line spacing */
 .message-content p {
-  margin: 0 0 1em 0;
-  line-height: 1.65;
+  margin: 0 0 0.5em 0;
+}
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+.message-content p:empty {
+  margin: 0;
+}
+.message-content br {
+  content: "";
+  display: block;
+  margin: 0;
 }
 .message-content strong,
 .message-content b {
@@ -865,7 +934,7 @@ button {
   border-radius: 8px;
   padding: 1em;
   overflow-x: auto;
-  margin: 1em 0;
+  margin: 0.75em 0;
 }
 .message-content pre code {
   background: none;
@@ -873,23 +942,24 @@ button {
   font-size: 0.9em;
   color: #f0f6fc;
 }
+/* ✅ [MODIFIED] Reduced list margins */
 .message-content ul,
 .message-content ol {
-  margin: 0 0 1em 1.5em;
+  margin: 0 0 0.5em 1.5em;
   padding: 0;
 }
 .message-content li {
-  margin: 0.3em 0;
+  margin: 0.25em 0;
 }
 .message-content li ul,
 .message-content li ol {
   margin-left: 1.2em;
-  margin-top: 0.3em;
+  margin-top: 0.25em;
 }
 .message-content blockquote {
   border-left: 3px solid #4f46e5;
   padding-left: 1em;
-  margin: 0 0 1em 0;
+  margin: 0.75em 0;
   color: #9ca3af;
   font-style: italic;
 }
@@ -918,45 +988,133 @@ button {
 .message-content h1,
 .message-content h2,
 .message-content h3 {
-  margin-top: 1.2em;
-  margin-bottom: 0.6em;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 .message-content h3 {
   font-size: 1rem;
   color: #d1d5db;
 }
-.message-content h1 + p,
-.message-content h2 + p,
-.message-content h3 + p {
-  margin-top: 0.3em;
-  margin-left: 1.2em;
+
+/* KaTeX Math Rendering (Unchanged) */
+.message-content .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
 }
-.message-content ul,
-.message-content ol {
-  margin-left: 1.5em;
-  margin-bottom: 1em;
+.message-content .katex {
+  font-size: 1.05em;
+  color: var(--text-primary);
 }
-.message-content li {
-  margin-bottom: 0.4em;
+[data-theme="dark"] .message-content .katex {
+  color: var(--text-primary-dark);
 }
-.message-content br {
-  content: "";
-  display: block;
+.message-content .katex .mathnormal {
+  font-family: "Manrope", KaTeX_Main, serif !important;
+}
+
+/* --- ✅ FINAL FIX: Force MathJax SVG equations to wrap inside chat bubbles --- */
+.message-content mjx-container {
+  display: block !important;
+  max-width: 100% !important;
+  white-space: normal !important;
+  overflow: hidden !important;
+}
+
+.message-content mjx-container > svg {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+.message-content mjx-container[display="block"] {
+  text-align: left !important;
   margin: 0.5em 0;
 }
 
-.message-content img {
+/* --- 🖼️ [MODIFIED] Image Attachments --- */
+
+/* ✅ [MODIFIED] Base rule to prevent ANY image from overflowing its container */
+.message-content img,
+.message-image-attachment {
+  display: block;
   max-width: 100%;
   height: auto;
   border-radius: var(--radius-md);
-  margin-top: 0.75rem;
-  border: 1px solid var(--border);
-  display: block;
+  background-color: var(--surface);
 }
 
-/* ✅ [NEW] Multi-file preview container */
+/* Container for user-uploaded image grids */
+.message-images-container {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  /* ✅ [MODIFIED] Made the gallery smaller */
+  max-width: 480px;
+}
+.message-images-container a {
+  display: block;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background-color: var(--surface);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+}
+.message-images-container .message-image-attachment {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  transition: transform var(--transition-fast);
+}
+.message-images-container a:hover .message-image-attachment {
+  transform: scale(1.05);
+}
+
+/* Grid layouts for different numbers of images */
+.images-count-1 {
+  grid-template-columns: 1fr;
+  max-width: 320px;
+}
+.images-count-2 {
+  grid-template-columns: 1fr 1fr;
+}
+.images-count-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.images-count-4 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+.images-count-5 {
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+.images-count-5 a:nth-child(1) {
+  grid-area: 1 / 1 / 2 / 4;
+}
+.images-count-5 a:nth-child(2) {
+  grid-area: 1 / 4 / 2 / 7;
+}
+.images-count-5 a:nth-child(3) {
+  grid-area: 2 / 1 / 3 / 3;
+}
+.images-count-5 a:nth-child(4) {
+  grid-area: 2 / 3 / 3 / 5;
+}
+.images-count-5 a:nth-child(5) {
+  grid-area: 2 / 5 / 3 / 7;
+}
+
+/* Aspect ratios for grid items */
+.message-images-container a {
+  aspect-ratio: 1 / 1;
+}
+.images-count-1 a {
+  aspect-ratio: 4 / 3;
+}
+
+/* --- ⬆️ [MODIFIED] File Upload Previews --- */
 #file-preview-container {
   position: absolute;
   bottom: 100%;
@@ -968,16 +1126,14 @@ button {
   padding: 0.75rem 0;
   overflow-x: auto;
   overflow-y: hidden;
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+  scrollbar-width: none;
 }
-/* Hide scrollbar for Chrome, Safari and Opera */
 #file-preview-container::-webkit-scrollbar {
   display: none;
 }
-
-/* ✅ [NEW] Individual file preview item (pill/chip) */
 .file-preview-item {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -990,6 +1146,13 @@ button {
   animation: slide-in 0.3s ease-out;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   max-width: 200px;
+  transition: border-color var(--transition-fast);
+}
+.file-preview-item.completed {
+  border-color: #10b981;
+}
+.file-preview-item.error {
+  border-color: #ef4444;
 }
 .file-preview-thumbnail {
   width: 28px;
@@ -1034,13 +1197,50 @@ button {
   transition: all var(--transition-fast);
   margin-left: 0.25rem;
   flex-shrink: 0;
+  z-index: 5;
 }
 .remove-file-btn:hover {
   background-color: #ef4444;
   color: white;
   transform: scale(1.1) rotate(90deg);
 }
+.file-preview-item.uploading .remove-file-btn {
+  display: none;
+}
 
+.file-preview-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: opacity var(--transition-fast);
+}
+[data-theme="dark"] .file-preview-overlay {
+  background-color: rgba(20, 20, 20, 0.7);
+}
+.file-preview-overlay .spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+.file-preview-overlay svg {
+  width: 24px;
+  height: 24px;
+}
+.file-preview-item.completed .file-preview-overlay svg {
+  color: #10b981;
+}
+.file-preview-item.error .file-preview-overlay svg {
+  color: #ef4444;
+}
+
+/* Prompt Suggestions & Typing Cursor (Unchanged) */
 .prompt-suggestions {
   display: flex;
   flex-wrap: wrap;
@@ -1089,12 +1289,10 @@ button {
   }
 }
 
-/* --- ✅ [MODIFIED] MODALS & NEW PLACEHOLDER --- */
+/* --- MODALS & NEW PLACEHOLDER (UNCHANGED) --- */
 .hidden {
   display: none !important;
 }
-
-/* ✅ [NEW] Styles for the image generation placeholder in the chat */
 .image-placeholder {
   display: flex;
   flex-direction: column;
@@ -1125,7 +1323,6 @@ button {
   margin: 0;
   line-height: 1.5;
 }
-
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1141,11 +1338,9 @@ button {
     backdrop-filter var(--transition-fast);
   padding: 1rem;
 }
-
 .modal-overlay:not(.hidden) {
   opacity: 1;
 }
-
 .modal-content {
   position: relative;
   background-color: var(--bg);
@@ -1158,11 +1353,9 @@ button {
   transform: scale(0.95);
   transition: transform var(--transition-fast);
 }
-
 .modal-overlay:not(.hidden) .modal-content {
   transform: scale(1);
 }
-
 .modal-close-btn {
   position: absolute;
   top: 10px;
@@ -1177,57 +1370,48 @@ button {
   padding: 0;
   transition: color var(--transition-fast);
 }
-
 .modal-close-btn:hover {
   color: var(--text-primary);
 }
-
 .modal-content h3 {
   margin-top: 0;
   margin-bottom: 0.75rem;
   color: var(--text-primary);
   font-size: 1.25rem;
 }
-
 .modal-content p {
   color: var(--text-secondary);
   margin-bottom: 1.5rem;
   line-height: 1.6;
   font-size: 0.9rem;
 }
-
 .modal-actions {
   display: flex;
   gap: 1rem;
   justify-content: center;
 }
-
 .btn {
   padding: 8px 8px;
   border-radius: 10px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 0.95rem;
   transition: all var(--transition-fast);
   background-color: var(--accent);
   color: white;
 }
-
 .btn:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow);
 }
-
 .btn.ghost {
   background-color: transparent;
   border: 1px solid var(--border);
   color: var(--text-primary);
 }
-
 .btn.ghost:hover {
   background-color: var(--surface);
   border-color: var(--accent);
 }
-
 .modal-content.preview {
   max-width: 370px;
   width: 100%;
@@ -1244,7 +1428,6 @@ button {
 .modal-overlay:not(.hidden) .modal-content.preview {
   transform: scale(1) translateY(0);
 }
-
 .modal-content.preview #preview-video {
   position: absolute;
   top: 0;
@@ -1254,7 +1437,6 @@ button {
   object-fit: cover;
   z-index: 1;
 }
-
 .modal-content.preview .preview-overlay {
   position: absolute;
   inset: 0;
@@ -1266,7 +1448,6 @@ button {
     rgba(20, 20, 20, 0.9) 100%
   );
 }
-
 .modal-content.preview .preview-content {
   position: relative;
   z-index: 3;
@@ -1277,13 +1458,11 @@ button {
   flex-direction: column;
   justify-content: space-between;
 }
-
 .modal-content.preview .preview-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-
 .modal-content.preview .preview-header h3 {
   margin: 0;
   font-size: 1.5rem;
@@ -1291,7 +1470,6 @@ button {
   color: #fff;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
-
 .modal-content.preview .preview-header span {
   display: flex;
   align-items: center;
@@ -1305,12 +1483,10 @@ button {
   border-radius: var(--radius-pill);
   color: #f0f0f0;
 }
-
 .modal-content.preview .preview-header span svg {
   color: #10b981;
   animation: pulse-live 2s infinite;
 }
-
 @keyframes pulse-live {
   0%,
   100% {
@@ -1320,11 +1496,9 @@ button {
     opacity: 0.4;
   }
 }
-
 .modal-content.preview .preview-footer {
   text-align: left;
 }
-
 .modal-content.preview .preview-footer p {
   font-size: 0.95rem;
   line-height: 1.6;
@@ -1332,11 +1506,9 @@ button {
   color: #e5e7eb;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
 }
-
 .modal-content.preview .modal-actions {
   gap: 0.75rem;
 }
-
 .modal-content.preview .btn {
   flex-grow: 1;
   text-align: center;
@@ -1344,7 +1516,6 @@ button {
   padding: 0.8rem 1rem;
   font-size: 0.9rem;
 }
-
 .modal-content.preview #confirm-personality-switch-btn {
   background-color: #ec4899;
   border: none;
@@ -1354,7 +1525,6 @@ button {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(236, 72, 153, 0.3);
 }
-
 .modal-content.preview .btn.ghost {
   background-color: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
@@ -1362,12 +1532,10 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
 }
-
 .modal-content.preview .btn.ghost:hover {
   background-color: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.3);
 }
-
 .modal-content.preview .modal-close-btn {
   z-index: 4;
   color: #fff;
@@ -1376,7 +1544,6 @@ button {
   right: 1rem;
   transition: all var(--transition-fast);
 }
-
 .modal-content.preview .modal-close-btn:hover {
   opacity: 1;
   transform: scale(1.1) rotate(90deg);
