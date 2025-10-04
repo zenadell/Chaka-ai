@@ -10,6 +10,27 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true
+    },
+    svg: {
+      fontCache: 'global',
+      scale: 1,              // normal readable size
+      minScale: 0.8,         // never shrink below 80%
+      overflow: 'linebreak', // ✅ allow wrapping instead of overflow
+    }
+  };
+</script>
+
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
+</script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
 <script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.6.2/dist/dotlottie-wc.js" type="module"></script>
 <link rel="stylesheet" href="style.css">
@@ -60,7 +81,21 @@
               <div id="file-upload-wrapper" title="Upload File">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.441l-7.81 7.81a1.5 1.5 0 002.122 2.122l7.81-7.81" /></svg>
                   <span>Add file</span>
-                  <input id="file-upload" type="file" multiple accept="image/png, image/jpeg, image/webp, text/plain, application/pdf, text/html, text/css, text/javascript, .html, .css, .js, .py, .jsx"/>
+                  <input id="file-upload" type="file" multiple="
+    .txt, .pdf,
+    .html, .css, .js, .jsx, .ts, .tsx, .mjs, .cjs, .py,
+    .java, .class, .kt, .kts, .scala, .groovy,
+    .c, .cpp, .cc, .cxx, .h, .hpp,
+    .rs, .go, .rb, .php, .pl, .sh, .bash, .zsh,
+    .swift, .m, .mm, .cs, .vb,
+    .sql, .json, .yml, .yaml, .xml, .toml, .ini,
+    .r, .jl, .dart, .lua, .hs, .ml, .erl, .ex, .exs,
+    .md, .markdown,
+    .png, .jpeg, .jpg, .webp
+  "/>
+
+
+
               </div>
           </div>
           
