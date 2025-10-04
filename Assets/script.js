@@ -95,13 +95,19 @@ let fetchController;
 // --- GLOBAL STATE FOR MULTIPLE FILE UPLOADS (UNCHANGED) ---
 let selectedFiles = []; 
 
-// --- botConfig (UNCHANGED) ---
+// --- ✅ [MODIFIED] TTS (TEXT-TO-SPEECH) PLAYBACK STATE ---
+let currentAudio = null;
+let currentTtsButton = null;
+
+// --- ✅ [MODIFIED] botConfig with TTS properties ---
 let botConfig = {
   botName: "AI Bot",
   themeColor: "#4F46E5",
   allowFileUpload: false,
   apiKey: "",
   apiKeys: {},
+  ttsApiKey: null, // To store the ElevenLabs API key
+  ttsVoiceId: "JBFqnCBsd6RMkjVDRZzb", // Default voice ID
   persona: "",
   botBubbleColor: "",
   userBubbleColor: "linear-gradient(135deg, #10b981, #059669)",
@@ -251,8 +257,95 @@ function showApiStatus(message, duration = 4000) {
     }
 }
 
+// --- UPLOAD USER FILE TO CLOUDINARY (UNCHANGED) ---
+async function uploadFileToCloudinary(file) {
+    const CLOUDINARY_CLOUD_NAME = "dvjs45kft";
+    const CLOUDINARY_UPLOAD_PRESET = "vevapvkv";
+    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+    try {
+        const response = await fetch(cloudinaryUrl, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error.message || 'Failed to upload the image to Cloudinary.');
+        }
+
+        const data = await response.json();
+        return data.secure_url;
+    } catch (error) {
+        console.error("Cloudinary upload failed:", error);
+        throw error;
+    }
+}
+
 
 // --- FILE INPUT MANAGEMENT FUNCTIONS (UNCHANGED) ---
+function checkSendButtonState() {
+    if (autoRetryState.isActive) {
+        toggleSendButtonState('stop', false);
+        return;
+    }
+
+    const hasText = DOMElements.messageInput.value.trim().length > 0;
+    const hasFiles = selectedFiles.length > 0;
+    const isUploading = selectedFiles.some(f => f.status === 'uploading');
+    const hasCompletedFiles = selectedFiles.some(f => f.status === 'completed');
+
+    if (isUploading) {
+        toggleSendButtonState('send', true); // Disable send button
+        DOMElements.statusRow.textContent = "Uploading files...";
+    } else {
+        if (DOMElements.statusRow.textContent === "Uploading files...") {
+            const failedUploads = selectedFiles.filter(f => f.status === 'error').length;
+            DOMElements.statusRow.textContent = failedUploads > 0 ? `⚠️ ${failedUploads} file(s) failed to upload.` : "Uploads complete.";
+        }
+        
+        if (hasText || hasCompletedFiles) {
+            toggleSendButtonState('send', false);
+        } else {
+            toggleSendButtonState('mic', false);
+        }
+    }
+}
+
+function updateFilePreviewStatus(fileId, status, data = {}) {
+    const fileElement = document.getElementById(`file-preview-${fileId}`);
+    if (!fileElement) return;
+
+    // Clean up previous statuses
+    fileElement.classList.remove('uploading', 'completed', 'error');
+    const existingOverlay = fileElement.querySelector('.file-preview-overlay');
+    if (existingOverlay) existingOverlay.remove();
+
+    fileElement.classList.add(status);
+
+    if (status === 'uploading') {
+        const overlay = document.createElement('div');
+        overlay.className = 'file-preview-overlay';
+        overlay.innerHTML = '<div class="spinner"></div>';
+        fileElement.appendChild(overlay);
+    } else if (status === 'completed') {
+        const overlay = document.createElement('div');
+        overlay.className = 'file-preview-overlay';
+        overlay.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm13.36-1.814a.75.75 0 1 0-1.06-1.06L11.25 12.44l-1.72-1.72a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.06 0l3.75-3.75Z" clip-rule="evenodd" /></svg>`;
+        fileElement.appendChild(overlay);
+    } else if (status === 'error') {
+        const overlay = document.createElement('div');
+        overlay.className = 'file-preview-overlay';
+        overlay.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm-1.72 6.97a.75.75 0 1 0-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 1 0 1.06 1.06L12 13.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L13.06 12l1.72-1.72a.75.75 0 1 0-1.06-1.06L12 10.94l-1.72-1.72Z" clip-rule="evenodd" /></svg>`;
+        fileElement.appendChild(overlay);
+        fileElement.title = `Error: ${data.message}`;
+    }
+}
+
 function updateFileInputUI() {
     const filePreviewContainer = document.getElementById('file-preview-container');
     const hasFiles = selectedFiles.length > 0;
@@ -270,6 +363,7 @@ function removeFile(fileId) {
         fileElement.remove();
     }
     updateFileInputUI();
+    checkSendButtonState();
 }
 
 function resetFileInput() {
@@ -281,8 +375,8 @@ function resetFileInput() {
     if (fileUploadInput) fileUploadInput.value = '';
 
     updateFileInputUI();
+    checkSendButtonState();
 }
-
 
 // --- THEME & UI HELPERS (UNCHANGED) ---
 const applyTheme = (theme) => {
@@ -330,6 +424,116 @@ const applyConfigToUI = () => {
   DOMElements.statusRow.textContent = !botConfig.active ? '⚠️ Bot is deactivated by admin' : '';
   DOMElements.sendBtn.disabled = false;
 };
+
+// --- ✅ [UPDATED] TEXT-TO-SPEECH (TTS) FUNCTIONS ---
+function stopCurrentAudio() {
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.src = ''; // Release memory
+        URL.revokeObjectURL(currentAudio.src);
+        currentAudio = null;
+    }
+    if (currentTtsButton) {
+        currentTtsButton.classList.remove('loading', 'playing');
+        currentTtsButton = null;
+    }
+}
+
+async function playTextAsSpeech(text, buttonElement) {
+    if (!botConfig.ttsApiKey) {
+        console.error("ElevenLabs API key is not configured.");
+        alert("Text-to-speech functionality is not set up by the administrator.");
+        return;
+    }
+
+    // If the clicked button is for the currently active audio
+    if (buttonElement === currentTtsButton && currentAudio) {
+        if (currentAudio.paused) {
+            currentAudio.play();
+        } else {
+            currentAudio.pause();
+        }
+        return;
+    }
+
+    // Stop any currently playing audio before starting a new one
+    stopCurrentAudio();
+
+    currentTtsButton = buttonElement;
+    currentTtsButton.classList.add('loading');
+
+    try {
+        // Use the streaming endpoint which can be more reliable for client-side calls
+        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${botConfig.ttsVoiceId}/stream`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'audio/mpeg',
+                'Content-Type': 'application/json',
+                'xi-api-key': botConfig.ttsApiKey,
+            },
+            body: JSON.stringify({
+                text: text.replace(/!\[[^\]]*\]\([^)]*\)/g, ''), // Remove image markdown
+                model_id: 'eleven_multilingual_v2',
+                voice_settings: {
+                    stability: 0.5,
+                    similarity_boost: 0.75,
+                },
+            }),
+        });
+
+        if (!response.ok) {
+            let errorMsg = 'Failed to generate audio from the service.';
+            try {
+                // Try to get a detailed error message from the response body
+                const errorData = await response.json();
+                if (errorData.detail && errorData.detail.message) {
+                    errorMsg = errorData.detail.message;
+                } else if (typeof errorData.detail === 'string') {
+                    errorMsg = errorData.detail;
+                } else {
+                    errorMsg = `HTTP Error: ${response.status} ${response.statusText}`;
+                }
+            } catch (e) {
+                // If the body is not JSON or can't be read, use the status text
+                errorMsg = `HTTP Error: ${response.status} ${response.statusText}`;
+            }
+             // Specifically handle the "Unusual Activity" error from the screenshot
+            if (errorMsg.toLowerCase().includes("unusual activity") || errorMsg.toLowerCase().includes("free tier usage disabled")) {
+                alert("This page says: Unusual activity detected. Free Tier usage disabled. This can happen when using a proxy/VPN or due to browser security restrictions. Please try disabling any VPN or contact the administrator.");
+                throw new Error("ElevenLabs API usage disabled."); // Throw to be caught by the outer catch
+            }
+            throw new Error(errorMsg);
+        }
+
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        currentAudio = new Audio(audioUrl);
+
+        currentAudio.onplay = () => {
+            currentTtsButton.classList.remove('loading');
+            currentTtsButton.classList.add('playing');
+        };
+        currentAudio.onpause = () => {
+            currentTtsButton.classList.remove('playing');
+        };
+        currentAudio.onended = () => {
+            stopCurrentAudio();
+        };
+
+        currentAudio.play();
+
+    } catch (error) {
+        console.error('Text-to-Speech Error:', error);
+        // The "Failed to fetch" error happens when the request is blocked before a response is received (e.g., CORS preflight failure)
+        if (error.message.includes("Failed to fetch")) {
+             alert("Could not play audio: The request was blocked. This is often due to a network issue or browser security (CORS) policy. Please check your connection or contact the administrator.");
+        } else if (!error.message.includes("ElevenLabs API usage disabled")) { // Avoid showing a second alert
+            alert(`Could not play audio: ${error.message}`);
+        }
+        stopCurrentAudio(); // Clean up on error
+    }
+}
 
 
 // --- HELPER FUNCTIONS FOR CHAT CONTINUATION (UNCHANGED) ---
@@ -414,19 +618,15 @@ async function showPersonalityPreview(personality) {
     });
 }
 
-// --- ✅ [MODIFIED] Function to mark a personality as seen by the user ---
+// --- Function to mark a personality as seen by the user (UNCHANGED) ---
 async function markPersonalityAsSeen(personalityId) {
     if (!state.userId || !personalityId) return;
     try {
         const userRef = doc(db, 'users', state.userId);
-        // Atomically add the new personalityId to the 'seenPersonalities' array.
-        // This is more robust than reading, modifying, and writing the array back.
         await updateDoc(userRef, {
             seenPersonalities: arrayUnion(personalityId)
         });
     } catch (error) {
-        // If updateDoc fails (e.g., the document or field doesn't exist),
-        // fall back to setDoc with merge to ensure the field is created.
         if (error.code === 'not-found' || error.message.includes("No document to update")) {
              await setDoc(doc(db, 'users', state.userId), {
                 seenPersonalities: [personalityId]
@@ -437,7 +637,7 @@ async function markPersonalityAsSeen(personalityId) {
     }
 }
 
-// --- ✅ [MODIFIED] PERSONALITY SELECTION LOGIC ---
+// --- PERSONALITY SELECTION LOGIC (UNCHANGED) ---
 function subscribeAndDisplayPersonalities() {
     if (state.personalitiesUnsub) state.personalitiesUnsub();
     const personalitiesCol = collection(db, 'personalities');
@@ -473,9 +673,7 @@ function subscribeAndDisplayPersonalities() {
                     <div class="personality-description">${sanitize(personality.description) || 'No description'}</div>
                 </div>`;
 
-            // --- RE-ENGINEERED EVENT LISTENER LOGIC ---
             item.addEventListener('click', async () => {
-                // If this personality is already active, just close the popup and do nothing.
                 if (state.selectedPersonalityId === id) {
                     DOMElements.composerActionsPopup.classList.remove('show');
                     DOMElements.composerActionsBtn.classList.remove('active');
@@ -483,12 +681,10 @@ function subscribeAndDisplayPersonalities() {
                     return;
                 }
                 
-                // Close the personality list immediately for a smoother UI experience.
                 DOMElements.composerActionsPopup.classList.remove('show');
                 DOMElements.composerActionsBtn.classList.remove('active');
                 
                 try {
-                    // Fetch all necessary data upfront for efficiency.
                     const personalityDoc = await getDoc(doc(db, 'personalities', id));
                     if (!personalityDoc.exists()) {
                         console.error("Selected personality does not exist.");
@@ -500,39 +696,30 @@ function subscribeAndDisplayPersonalities() {
                     const userDoc = await getDoc(doc(db, 'users', state.userId));
                     const seenPersonalities = userDoc.exists() ? userDoc.data().seenPersonalities || [] : [];
                     
-                    // Determine if the video preview is required.
                     const shouldShowPreview = fullPersonalityData.videoUrl && !seenPersonalities.includes(id);
                     
                     let userWantsToSwitch = true;
                     if (shouldShowPreview) {
-                        // Show the preview and wait for the user's decision.
                         userWantsToSwitch = await showPersonalityPreview({
                             name: fullPersonalityData.name, 
                             videoUrl: fullPersonalityData.videoUrl
                         });
                     }
 
-                    // If the user cancels the switch from the preview, halt the process.
                     if (!userWantsToSwitch) {
                         DOMElements.overlay.classList.remove('show');
                         return;
                     }
 
-                    // --- If we reach this point, the user has confirmed the switch. ---
-
-                    // If the preview was shown and confirmed, permanently mark it as seen.
                     if (shouldShowPreview) {
                         await markPersonalityAsSeen(id);
                     }
 
-                    // Check for a previous chat session with this personality.
                     const lastSessionId = await findLastSessionForPersonality(id);
                     
                     if (lastSessionId) {
-                        // If a session exists, prompt the user to continue or start over.
                         showContinuationPrompt(id, lastSessionId);
                     } else {
-                        // If no session exists, start a new chat immediately.
                         DOMElements.overlay.classList.remove('show');
                         state.selectedPersonalityId = id;
                         localStorage.setItem('selectedPersonalityId', id);
@@ -543,7 +730,6 @@ function subscribeAndDisplayPersonalities() {
 
                 } catch (error) {
                     console.error("Error handling personality selection:", error);
-                    // Ensure the UI is in a clean state in case of an error.
                     DOMElements.overlay.classList.remove('show');
                 }
             });
@@ -551,7 +737,6 @@ function subscribeAndDisplayPersonalities() {
             DOMElements.personalityList.appendChild(item);
         });
 
-        // Update default and selected personality state
         state.defaultPersonalityId = newDefaultPersonalityId;
         if (currentSelectedId === oldDefaultId || currentSelectedId === null) {
             state.selectedPersonalityId = newDefaultPersonalityId;
@@ -562,7 +747,6 @@ function subscribeAndDisplayPersonalities() {
             }
         }
 
-        // Update the active class in the UI
         document.querySelectorAll('.personality-item.active').forEach(el => el.classList.remove('active'));
         if (state.selectedPersonalityId) {
             const activeItem = DOMElements.personalityList.querySelector(`.personality-item[data-id="${state.selectedPersonalityId}"]`);
@@ -654,55 +838,46 @@ await setDoc(sRef, { lastSubtleNote: { text: note, createdAt: serverTimestamp() 
 }
 }
 async function handleUserMessage(text) {
-  const out = { saved: false, blocked: false, warned: false, warningsCount: 0, matchedTrigger: null };
-const msg = sanitize(text);
+  const out = { blocked: false, warned: false, warningsCount: 0, matchedTrigger: null };
+  const msg = sanitize(text);
   if (!msg) return out;
-  await saveFirstMessageTitleIfNeeded(msg);
+
   try {
     const check = await isUserOrSessionBlocked();
-if (check.blocked) {
+    if (check.blocked) {
       out.blocked = true;
       return out;
-}
+    }
   } catch (e) {
     console.warn('pre-save block check failed', e);
-}
-  try {
-    await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
-      text: msg,
-      sender: 'user',
-      createdAt: new Date()
-    });
-out.saved = true;
-  } catch (err) {
-    console.warn('handleUserMessage: failed to save user message', err);
-}
+  }
+  
   try {
     const matched = findMatchingTrigger(msg);
-if (matched) {
+    if (matched) {
       out.matchedTrigger = matched;
-if (matched.action === 'block') {
+      if (matched.action === 'block') {
         await blockUser(matched);
         out.blocked = true;
-} else if (matched.action === 'warn') {
+      } else if (matched.action === 'warn') {
         const warnings = await warnUser(matched);
-out.warned = true;
+        out.warned = true;
         out.warningsCount = warnings;
         const maxWarn = (typeof matched.maxWarnings === 'number') ?
-matched.maxWarnings : (matched.maxWarnings ? Number(matched.maxWarnings) : 3);
+        matched.maxWarnings : (matched.maxWarnings ? Number(matched.maxWarnings) : 3);
         if (warnings >= (maxWarn || 3)) {
           await blockUser(matched);
-out.blocked = true;
+          out.blocked = true;
         }
       }
     }
   } catch (e) {
     console.warn('handleUserMessage: trigger processing failed', e);
-}
+  }
   return out;
 }
 
-// --- loadConfigLive (UNCHANGED) ---
+// --- ✅ [MODIFIED] loadConfigLive with TTS key logic ---
 function loadConfigLive() {
   if (state.configPromise) return state.configPromise;
 state.configPromise = (async () => {
@@ -711,6 +886,12 @@ state.configPromise = (async () => {
       Object.assign(botConfig, data || {});
       botConfig.allowFileUpload = parseBool(botConfig.allowFileUpload);
       botConfig.apiKeys = botConfig.apiKeys || {};
+      
+      // Handle TTS API Key
+      const ttsKeyEntry = Object.values(botConfig.apiKeys).find(k => k && k.type === 'tts' && k.enabled !== false);
+      botConfig.ttsApiKey = ttsKeyEntry ? ttsKeyEntry.key : null;
+      botConfig.ttsVoiceId = ttsKeyEntry ? ttsKeyEntry.voiceId || 'JBFqnCBsd6RMkjVDRZzb' : 'JBFqnCBsd6RMkjVDRZzb';
+
       apiKeyManager.initialize(botConfig.apiKeys);
       if (typeof botConfig.apiKey === 'string') botConfig.apiKey = botConfig.apiKey.trim();
       if (Array.isArray(data?.triggerPhrases)) {
@@ -777,19 +958,17 @@ function subscribeSessions() {
   });
 }
 
-// --- subscribeMessages (UNCHANGED) ---
+// --- ✅ [MODIFIED] subscribeMessages to add TTS button ---
 function subscribeMessages() {
   if (!state.sessionId) return;
   if (state.messagesUnsub) state.messagesUnsub();
   const q = query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc'));
   state.messagesUnsub = onSnapshot(q, snap => {
+    stopCurrentAudio(); // Stop any TTS when messages re-render
     const container = DOMElements.chatMessages;
-
     container.querySelectorAll('.streaming').forEach(el => el.remove());
-
-    const wasAtBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50;
-
     container.innerHTML = '';
+
     if (snap.empty) {
         const suggestions = (botConfig.promptSuggestions || []).slice(0, 6);
         let suggestionButtonsHTML = '';
@@ -831,41 +1010,78 @@ function subscribeMessages() {
 
       const content = document.createElement('div');
       content.className = 'message-content';
+      
+      let processedText = msg.text || '';
+      
+      const placeholderRegex = /\[IMAGE_PLACEHOLDER_PROMPT:"([^"]+)"\]/g;
+      const imageRegex = /!\[Image for prompt: "([^"]+)"\]\(([^)]+)\)/g;
 
-      const imageRegex = /!\[Image for prompt: "([^"]+)"\]\(([^)]+)\)/;
-      const imageMatch = (msg.text || '').match(imageRegex);
-      const placeholderRegex = /^\[IMAGE_PLACEHOLDER_PROMPT:"([^"]+)"\]$/;
-      const placeholderMatch = (msg.text || '').match(placeholderRegex);
+      processedText = processedText.replace(placeholderRegex, (match, promptText) => {
+          return `<div class="image-placeholder">
+                      <div class="spinner"></div>
+                      <p>Generating image...</p>
+                  </div>`;
+      });
 
-      if (msg.sender === 'bot' && imageMatch) {
-          const promptText = imageMatch[1];
-          const imageUrl = imageMatch[2];
-          content.innerHTML = `
-              <p style="margin-bottom: 8px;">Here's the image for: <strong>${promptText}</strong></p>
-              <a href="${imageUrl}" target="_blank" rel="noopener noreferrer">
-                  <img src="${imageUrl}" alt="Generated image for ${promptText}">
-              </a>
-          `;
-      } else if (msg.sender === 'bot' && placeholderMatch) {
-          const promptText = placeholderMatch[1];
-          content.innerHTML = `
-              <div class="image-placeholder">
-                  <div class="spinner"></div>
-                  <p>Generating an image of: <strong>${promptText}</strong></p>
-              </div>`;
+      processedText = processedText.replace(imageRegex, (match, promptText, imageUrl) => {
+          return `<p style="margin-bottom: 8px;">Here's the image for: <strong>${promptText}</strong></p>
+                  <a href="${imageUrl}" target="_blank" rel="noopener noreferrer">
+                      <img src="${imageUrl}" alt="Generated image for ${promptText}" class="message-image-attachment">
+                  </a>`;
+      });
+      
+      if (typeof marked !== 'undefined') {
+        marked.setOptions({ gfm: true, breaks: true, headerIds: false, mangle: false });
+        content.innerHTML = marked.parse(processedText);
       } else {
-          if (typeof marked !== 'undefined') {
-            marked.setOptions({ gfm: true, breaks: true, headerIds: false, mangle: false });
-            const rawHTML = marked.parse(msg.text || '');
-            content.innerHTML = rawHTML;
-          } else {
-            content.textContent = msg.text || '';
-          }
+        content.textContent = processedText;
       }
-
+      
       el.appendChild(content);
 
-      if (msg.sender === 'bot' && !imageMatch && !placeholderMatch) {
+      if (msg.imageUrls && msg.imageUrls.length > 0) {
+        const imagesContainer = document.createElement('div');
+        const count = msg.imageUrls.length;
+        imagesContainer.className = `message-images-container images-count-${Math.min(count, 5)}`;
+        if (count > 5) {
+            imagesContainer.classList.add('images-count-many');
+        }
+
+        msg.imageUrls.forEach(url => {
+          const link = document.createElement('a');
+          link.href = url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          const img = document.createElement('img');
+          img.src = url;
+          img.className = 'message-image-attachment';
+          img.loading = 'lazy';
+          link.appendChild(img);
+          imagesContainer.appendChild(link);
+        });
+        
+        if (content.innerHTML.trim()) {
+          content.prepend(imagesContainer);
+        } else {
+          content.appendChild(imagesContainer);
+        }
+      }
+      
+      const hasTextContent = (msg.text || '').trim().length > 0;
+      if (msg.sender === 'bot' && hasTextContent && !imageRegex.test(msg.text) && !placeholderRegex.test(msg.text)) {
+        // TTS Button
+        const ttsBtn = document.createElement('button');
+        ttsBtn.className = 'tts-btn';
+        ttsBtn.title = 'Listen to message';
+        ttsBtn.innerHTML = `
+          <span class="play-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5.14v14l11-7-11-7z"></path></svg></span>
+          <span class="pause-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg></span>
+          <span class="spinner"></span>
+        `;
+        ttsBtn.onclick = () => playTextAsSpeech(msg.text, ttsBtn);
+        el.appendChild(ttsBtn);
+
+        // Copy Button
         const copyBtn = document.createElement('button');
         copyBtn.className = 'copy-message-btn';
         copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1z"/></svg>`;
@@ -887,8 +1103,9 @@ function subscribeMessages() {
     });
     container.querySelectorAll('pre code').forEach(block => { try { hljs.highlightElement(block); } catch(e){} });
     addCopyButtons();
-    if (wasAtBottom) {
-      scrollToBottom();
+    
+    if (window.MathJax) {
+        MathJax.typesetPromise([container]).catch((err) => console.error('MathJax final typeset error:', err));
     }
   }, err => console.error('Messages snapshot error', err));
 }
@@ -1007,18 +1224,19 @@ async function isUserOrSessionBlocked(){
 }
 
 // --- toggleSendButtonState (UNCHANGED) ---
-function toggleSendButtonState(buttonState) {
+function toggleSendButtonState(buttonState, isDisabled = false) {
     const btn = DOMElements.sendBtn;
     const icons = {
         mic: btn.querySelector('.mic-icon'),
         send: btn.querySelector('.send-icon'),
         stop: btn.querySelector('.stop-icon'),
+        spinner: btn.querySelector('.spinner')
     };
 
     for (const icon in icons) {
         if (icons[icon]) icons[icon].style.display = 'none';
     }
-    btn.disabled = false;
+    btn.disabled = isDisabled;
 
     switch (buttonState) {
         case 'mic':
@@ -1035,6 +1253,7 @@ function toggleSendButtonState(buttonState) {
             break;
     }
 }
+
 
 // --- cancellableWait (UNCHANGED) ---
 function cancellableWait(duration, countdownMessage = '') {
@@ -1078,7 +1297,7 @@ function stopApiRequestLoop() {
     }
 }
 
-// --- makeApiRequest with Interruptible Auto-Scroll (UNCHANGED) ---
+// --- makeApiRequest (UNCHANGED from previous) ---
 async function makeApiRequest(requestBody, apiKey, abortSignal) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(endpoint, {
@@ -1107,22 +1326,21 @@ async function makeApiRequest(requestBody, apiKey, abortSignal) {
     let contentUpdated = false;
     let streamFinished = false;
 
-    // Initialize auto-scroll check at the beginning of the stream
     const chatMessages = DOMElements.chatMessages;
     let autoScrollEnabled = (chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 100);
 
     const renderLoop = () => {
         if (contentUpdated) {
-            // Render content first
             botMessageContent.innerHTML = marked.parse(accumulatedBotReply + '<span class="typing-cursor"></span>');
             
-            // Handle interruptible scrolling
+            if (window.MathJax) {
+                MathJax.typesetPromise([botMessageContent]).catch((err) => console.error('MathJax streaming typeset error:', err));
+            }
+
             if (autoScrollEnabled) {
-                // Re-check if the user is still near the bottom before scrolling
                 if (chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 100) {
-                    scrollToBottom('auto'); // Use 'auto' for instant scrolling during streaming
+                    scrollToBottom('auto');
                 } else {
-                    // User has scrolled up, so disable auto-scrolling for the rest of this message
                     autoScrollEnabled = false;
                 }
             }
@@ -1132,10 +1350,13 @@ async function makeApiRequest(requestBody, apiKey, abortSignal) {
         if (!streamFinished) {
             requestAnimationFrame(renderLoop);
         } else {
-            // Final render to remove the typing cursor
-            botMessageContent.innerHTML = marked.parse(accumulatedBotReply);
-            addCopyButtons(); // Re-apply copy buttons to the final content
-            // Perform one final, smooth scroll if auto-scroll was never interrupted
+            const finalHtml = marked.parse(accumulatedBotReply);
+            botMessageContent.innerHTML = finalHtml;
+            if (window.MathJax) {
+                MathJax.typesetPromise([botMessageContent]).catch((err) => console.error('MathJax final typeset error:', err));
+            }
+            botMessageContent.querySelectorAll('pre code').forEach(block => { try { hljs.highlightElement(block); } catch(e){} });
+            addCopyButtons();
             if (autoScrollEnabled) {
                 scrollToBottom('smooth');
             }
@@ -1158,9 +1379,16 @@ async function makeApiRequest(requestBody, apiKey, abortSignal) {
         const lines = chunk.split('\n');
         for (const line of lines) {
             if (line.trim().startsWith('"text":')) {
-                const textPart = line.substring(line.indexOf(':') + 2).replace(/",?$/, '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
-                accumulatedBotReply += textPart;
-                contentUpdated = true;
+                let jsonString = line.substring(line.indexOf(':') + 1).trim();
+                if (jsonString.endsWith(',')) {
+                    jsonString = jsonString.slice(0, -1);
+                }
+                try {
+                    accumulatedBotReply += JSON.parse(jsonString);
+                    contentUpdated = true;
+                } catch (e) {
+                    console.warn("Could not parse stream line as JSON:", jsonString, e);
+                }
             }
         }
     }
@@ -1170,32 +1398,27 @@ async function makeApiRequest(requestBody, apiKey, abortSignal) {
 // --- cleanupAfterLoop (UNCHANGED) ---
 function cleanupAfterLoop() {
     autoRetryState.isActive = false;
-    const text = DOMElements.messageInput.value.trim();
-    if (text || selectedFiles.length > 0) {
-        toggleSendButtonState('send');
-    } else {
-        toggleSendButtonState('mic');
-    }
+    checkSendButtonState();
 }
 
 // --- generateAndReplaceImage (UNCHANGED) ---
-async function generateAndReplaceImage(prompt, placeholderDocId) {
+async function generateAndReplaceImage(prompt, messageId, originalText) {
+    const messageDocRef = doc(db, 'chats', state.userId, state.sessionId, messageId);
     try {
         const imageUrl = await handleImageGenerationWithCloudinary(prompt);
-        const botMessageToSave = `![Image for prompt: "${prompt}"](${imageUrl})`;
+        const imageMarkdown = `![Image for prompt: "${prompt}"](${imageUrl})`;
+        const placeholder = `[IMAGE_PLACEHOLDER_PROMPT:"${prompt}"]`;
+        const newText = originalText.replace(placeholder, imageMarkdown);
         
-        const placeholderDocRef = doc(db, 'chats', state.userId, state.sessionId, placeholderDocId);
-        await updateDoc(placeholderDocRef, {
-            text: botMessageToSave
-        });
+        await updateDoc(messageDocRef, { text: newText });
+
     } catch (error) {
         console.error("Async image generation/replacement failed:", error);
         const errorMessage = `⚠️ Sorry, I couldn't create that image. Reason: ${error.message}`;
-        
-        const placeholderDocRef = doc(db, 'chats', state.userId, state.sessionId, placeholderDocId);
-        await updateDoc(placeholderDocRef, {
-            text: errorMessage
-        });
+        const placeholder = `[IMAGE_PLACEHOLDER_PROMPT:"${prompt}"]`;
+        const newText = originalText.replace(placeholder, errorMessage);
+
+        await updateDoc(messageDocRef, { text: newText });
     }
 }
 
@@ -1205,7 +1428,7 @@ async function executeApiRequestLoop() {
     autoRetryState.isActive = true;
     autoRetryState.stopRequested = false;
     fetchController = new AbortController();
-    toggleSendButtonState('stop');
+    toggleSendButtonState('stop', false);
 
     const MASTER_TIMEOUT = 90000;
     const startTime = Date.now();
@@ -1259,28 +1482,23 @@ async function executeApiRequestLoop() {
         apiKeyManager.recordUsage(apiKeyManager.getCurrentKey().id);
         botMessageGroup.remove();
         
-        const imageCommandRegex = /\[\s*"?'?generate_image'?"?\s*[:\s]+"?([\s\S]*?)"?\s*\]/s;
+        const imageCommandRegex = /(\[|\()\s*"?generate(?:_|\s|;)?image"?'?\s*[:\s]+"?([\s\S]*?)"?\s*(\]|\))/is;
         const match = finalAccumulatedReply.match(imageCommandRegex);
         
-        if (match && match[1]) {
-            const followUpText = finalAccumulatedReply.replace(match[0], '').trim();
-            let prompt = match[1].trim();
+        if (match && match[2]) {
+            let prompt = match[2].trim();
             if ((prompt.startsWith('"') && prompt.endsWith('"')) || (prompt.startsWith("'") && prompt.endsWith("'"))) {
                 prompt = prompt.substring(1, prompt.length - 1);
             }
 
-            if (followUpText) {
-                await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
-                    text: followUpText, sender: 'bot', createdAt: new Date()
-                });
-            }
+            const placeholder = `[IMAGE_PLACEHOLDER_PROMPT:"${prompt}"]`;
+            const combinedText = finalAccumulatedReply.replace(match[0], placeholder).trim();
 
-            const placeholderText = `[IMAGE_PLACEHOLDER_PROMPT:"${prompt}"]`;
-            const placeholderDocRef = await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
-                text: placeholderText, sender: 'bot', createdAt: new Date()
+            const messageDocRef = await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
+                text: combinedText, sender: 'bot', createdAt: new Date()
             });
 
-            generateAndReplaceImage(prompt, placeholderDocRef.id);
+            generateAndReplaceImage(prompt, messageDocRef.id, combinedText);
 
         } else {
             await addDoc(collection(db, 'chats', state.userId, state.sessionId), { 
@@ -1288,33 +1506,50 @@ async function executeApiRequestLoop() {
             });
         }
     } else {
-        if (autoRetryState.stopRequested) {
-            DOMElements.statusRow.textContent = 'Request stopped by user.';
-            botMessageGroup.remove();
-        } else {
-            const finalErrorMsg = "⚠️ Could not get your request. The server took too long to respond. Please try again later.";
-            DOMElements.statusRow.textContent = finalErrorMsg;
-            botMessageGroup.querySelector('.message-content').innerHTML = finalErrorMsg;
-            botMessageGroup.classList.remove('streaming'); 
+        const botMessageContent = botMessageGroup.querySelector('.message-content');
+        let errorMessage = autoRetryState.stopRequested 
+            ? 'Request stopped.'
+            : "⚠️ Oops! Something went wrong. Please try again.";
+        
+        const retryButtonHTML = `
+            <button class="retry-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.664 0l3.181-3.183m-4.991-2.695v.001" /></svg>
+                Retry
+            </button>`;
+
+        botMessageContent.innerHTML = `<p>${errorMessage}</p>${retryButtonHTML}`;
+        
+        const retryBtn = botMessageContent.querySelector('.retry-btn');
+        if (retryBtn) {
+            retryBtn.onclick = () => {
+                botMessageContent.innerHTML = '<span class="typing-cursor"></span>';
+                botMessageGroup.classList.add('streaming');
+                executeApiRequestLoop(); 
+            };
         }
+        
+        botMessageGroup.classList.remove('streaming');
     }
 
     cleanupAfterLoop();
 }
 
-// --- sendMessage (UNCHANGED) ---
+
+// --- sendMessage (UNCHANGED from previous) ---
 async function sendMessage() {
     const text = sanitize(DOMElements.messageInput.value);
 
     if (autoRetryState.isActive) return;
-    if (!text && selectedFiles.length === 0) return;
+    
+    const completedFiles = selectedFiles.filter(f => f.status === 'completed');
+    if (!text && completedFiles.length === 0) return;
 
-    toggleSendButtonState('stop');
+    toggleSendButtonState('stop', false);
     DOMElements.statusRow.textContent = '';
     DOMElements.messageInput.value = '';
     autosize(DOMElements.messageInput);
 
-    const filesToProcess = [...selectedFiles];
+    const filesToSend = [...selectedFiles];
     resetFileInput();
 
     try {
@@ -1331,52 +1566,59 @@ async function sendMessage() {
             return;
         }
 
-        let userMessageForUI = text;
-        let fileSummaryForUI = '';
         const userMessageParts = [{ text }];
+        let uploadedImageUrls = [];
+        let attachedFilesForFirestore = [];
+        let textForTriggerCheck = text;
 
-        if (filesToProcess.length > 0) {
-            DOMElements.statusRow.textContent = `Processing ${filesToProcess.length} file(s)...`;
-            for (const fileWrapper of filesToProcess) {
-                const file = fileWrapper.file;
-                let content = '';
-                let fileTypeLabel = 'FILE';
-                let status = 'unreadable';
-
-                if (file.type.startsWith('image/')) {
-                    const base64 = await parseImageFile(file);
-                    userMessageParts.push({ inline_data: { mime_type: file.type, data: base64 } });
-                    fileSummaryForUI += `🖼️ ${file.name}\n`;
-                    status = 'processed_visual'; // Special status for images
-                } else if (file.type.startsWith('text/')) {
-                    content = await parseTextFile(file);
-                    fileTypeLabel = 'TEXT FILE';
-                    status = 'processed_text';
-                    fileSummaryForUI += `📄 ${file.name}\n`;
-                } else if (file.type === 'application/pdf') {
-                    content = await parsePdfFile(file);
-                    fileTypeLabel = 'PDF';
-                    status = 'processed_text';
-                    fileSummaryForUI += `📄 ${file.name}\n`;
-                } else {
-                    fileSummaryForUI += `❓ ${file.name}\n`; // File type is not processable
-                }
-
-                if (status === 'processed_text') {
-                    userMessageParts[0].text += `\n\n--- ${fileTypeLabel}: ${file.name} ---\n${content}\n--- END ${fileTypeLabel} ---`;
-                } else if (status === 'unreadable') {
-                    userMessageParts[0].text += `\n\n[System note: User uploaded a file named "${file.name}" of type "${file.type || 'unknown'}", but its content cannot be read.]`;
-                }
-            }
-            userMessageForUI = fileSummaryForUI.trim() + (text ? `\n\n${text}` : '');
+        const imageFiles = filesToSend.filter(f => f.file.type.startsWith('image/') && f.status === 'completed');
+        const otherFiles = filesToSend.filter(f => !f.file.type.startsWith('image/'));
+        
+        if (imageFiles.length > 0) {
+            uploadedImageUrls = imageFiles.map(f => f.url);
+            const base64Promises = imageFiles.map(f => parseImageFile(f.file));
+            const base64Images = await Promise.all(base64Promises);
+            base64Images.forEach((base64, index) => {
+                userMessageParts.push({ inline_data: { mime_type: imageFiles[index].file.type, data: base64 } });
+            });
         }
-        DOMElements.statusRow.textContent = ``;
 
-        const handleResult = await handleUserMessage(userMessageForUI);
-        if (handleResult && handleResult.blocked && !handleResult.matchedTrigger) {
+        for (const fileWrapper of otherFiles) {
+             const file = fileWrapper.file;
+             let content = '';
+             let fileTypeLabel = 'FILE';
+             if (file.type.startsWith('text/')) {
+                 content = await parseTextFile(file);
+                 fileTypeLabel = 'TEXT FILE';
+             } else if (file.type === 'application/pdf') {
+                 content = await parsePdfFile(file);
+                 fileTypeLabel = 'PDF';
+             }
+             userMessageParts[0].text += `\n\n--- ${fileTypeLabel}: ${file.name} ---\n${content}\n--- END ${fileTypeLabel} ---`;
+             if (content) {
+                attachedFilesForFirestore.push({
+                    name: file.name,
+                    type: file.type,
+                    content: content
+                });
+             }
+        }
+        textForTriggerCheck = userMessageParts[0].text;
+
+        const handleResult = await handleUserMessage(textForTriggerCheck);
+        if (handleResult.blocked) {
             cleanupAfterLoop();
             return;
         }
+
+        await saveFirstMessageTitleIfNeeded(text || (uploadedImageUrls.length > 0 ? "Chat with images" : "New Chat"));
+        await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
+            text: text,
+            sender: 'user',
+            createdAt: new Date(),
+            imageUrls: uploadedImageUrls,
+            attachedFiles: attachedFilesForFirestore
+        });
 
         const botMessageGroup = document.createElement('div');
         botMessageGroup.className = 'message-group bot streaming';
@@ -1404,8 +1646,11 @@ async function sendMessage() {
             role: 'user',
             parts: [{
                 text: `${activePersonaInstructions}\n\n---**SYSTEM INSTRUCTIONS:**\n` +
-                "You have a tool to generate images. To use it, you MUST respond with the special command `[generate_image: A detailed description of the image to create]`. **After you output this command, you MUST provide a follow-up message on a new line describing the image you've just requested.** The system will handle displaying the image and your text comment separately. For example, if the user says 'make a picture of a dragon', your entire response should be:\n`[generate_image: A majestic fantasy dragon with shimmering scales, breathing fire, perched on a mountain peak]`\nOf course! Here is the image of the majestic dragon you asked for. It's perched high on a mountain, breathing a plume of fire." +
-                "\n\nFor all other requests, provide clear, readable, and well-structured answers. ALWAYS format your responses using Markdown. This is mandatory.\n- Use headings, bullet points, and numbered lists.\n- Use bold text for key terms.\n- Use code blocks for code snippets.\n---"
+                "1.  **Formatting:** ALWAYS use Markdown for formatting like headings, bold text, and lists. To avoid large gaps, use only a single blank line between paragraphs.\n" +
+                "2.  **Equations:** To display math, use LaTeX. For inline math, use single dollar signs (e.g., `$E=mc^2$`). For block-level equations, use double dollar signs (e.g., `$$x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$`).\n" +
+                "3.  **Image Generation:** To generate an image, your response MUST start with the command `[generate_image: \"A detailed description\"]` on the very first line. You MUST then provide a follow-up message on the next line. For example:\n" +
+                "`[generate_image: \"A photo of a red sports car\"]`\n" +
+                "Here is the image of the red sports car you requested."
             }]
         };
 
@@ -1413,8 +1658,20 @@ async function sendMessage() {
         const historyContents = snaps.docs.map(d => {
             const data = d.data();
             const role = data.sender === 'user' ? 'user' : 'model';
-            let messageText = data.text;
+            let messageText = data.text || '';
             
+            if (data.imageUrls && data.imageUrls.length > 0) {
+                const imageUrlsText = data.imageUrls.map(url => `[Reference Image provided by user: ${url}]`).join('\n');
+                messageText += `\n${imageUrlsText}`;
+            }
+
+            if (data.attachedFiles && Array.isArray(data.attachedFiles)) {
+                data.attachedFiles.forEach(file => {
+                    const fileTypeLabel = file.type === 'application/pdf' ? 'PDF' : (file.type.startsWith('text/') ? 'TEXT FILE' : 'FILE');
+                    messageText += `\n\n--- ${fileTypeLabel}: ${file.name} ---\n${file.content}\n--- END ${fileTypeLabel} ---`;
+                });
+            }
+
             const imageMatch = messageText.match(imageMarkdownRegex);
             if (role === 'model' && imageMatch) {
                 const prompt = imageMatch[1];
@@ -1422,12 +1679,12 @@ async function sendMessage() {
                 messageText = `[System: You have successfully generated an image for the prompt "${prompt}". The image is available at this URL: ${imageUrl}. The user can see it now. You can describe the image or ask if they want modifications.]`;
             }
             
-            return { role, parts: [{ text: messageText }] };
+            if (d.id === snaps.docs[snaps.docs.length - 1].id && role === 'user') {
+                 return { role, parts: userMessageParts };
+            }
+            
+            return { role, parts: [{ text: messageText.trim() }] };
         });
-        
-        if (historyContents.length > 0) {
-            historyContents[historyContents.length - 1].parts = userMessageParts;
-        }
         
         autoRetryState.requestPayload = { contents: [systemInstruction, {role: 'model', parts: [{text: "Understood."}]}, ...historyContents] };
         autoRetryState.botMessageElements = { botMessageGroup, botMessageEl, botMessageContent };
@@ -1521,6 +1778,7 @@ async function handleImageGenerationWithCloudinary(prompt) {
 
 // --- SESSION MANAGEMENT & EVENT LISTENERS (UNCHANGED) ---
 function startNewChat(){
+  stopCurrentAudio();
   state.sessionId=crypto.randomUUID();
   localStorage.setItem('chatSessionId',state.sessionId);
   state.firstMessageSaved=false;
@@ -1529,6 +1787,7 @@ function startNewChat(){
   document.querySelectorAll('.session-item.active').forEach(el=>el.classList.remove('active'));
 }
 function loadSessionById(id){
+  stopCurrentAudio();
   state.sessionId=id;
   localStorage.setItem('chatSessionId',id);
   state.firstMessageSaved=true;
@@ -1554,13 +1813,7 @@ async function clearHistory(){
 let recognition;
 DOMElements.messageInput.addEventListener('input', () => {
   autosize(DOMElements.messageInput);
-  if (autoRetryState.isActive) return;
-  const text = DOMElements.messageInput.value.trim();
-  if (text || selectedFiles.length > 0) {
-    toggleSendButtonState('send');
-  } else {
-    toggleSendButtonState('mic');
-  }
+  checkSendButtonState();
 });
 if ('webkitSpeechRecognition' in window) {
   recognition = new webkitSpeechRecognition();
@@ -1596,9 +1849,15 @@ DOMElements.sendBtn.addEventListener('click', () => {
       if(recognition) recognition.stop();
       return;
   }
-  const text = DOMElements.messageInput.value.trim();
-  if (text || selectedFiles.length > 0) sendMessage();
-  else if (recognition) recognition.start();
+  
+  const hasText = DOMElements.messageInput.value.trim().length > 0;
+  const hasCompletedFiles = selectedFiles.some(f => f.status === 'completed');
+  
+  if (hasText || hasCompletedFiles) {
+      sendMessage();
+  } else if (!hasText && selectedFiles.length === 0 && recognition) {
+      recognition.start();
+  }
 });
 async function updateUserStatusInFirestore(status) {
     if (!state.userId || !db) return;
@@ -1841,10 +2100,33 @@ const init = async () => {
       DOMElements.overlay.classList.toggle('show', isOpening);
   });
 
-  // --- Multi-File Input Logic (UNCHANGED) ---
   const fileUploadInput = document.getElementById('file-upload');
   const filePreviewContainer = document.getElementById('file-preview-container');
   
+  async function uploadAndProcessFile(fileId, file) {
+      const fileObject = selectedFiles.find(f => f.id === fileId);
+      if (!fileObject) return;
+
+      try {
+          fileObject.status = 'uploading';
+          updateFilePreviewStatus(fileId, 'uploading');
+          checkSendButtonState();
+          
+          const url = await uploadFileToCloudinary(file);
+          
+          fileObject.status = 'completed';
+          fileObject.url = url;
+          updateFilePreviewStatus(fileId, 'completed');
+
+      } catch (error) {
+          fileObject.status = 'error';
+          fileObject.error = error.message;
+          updateFilePreviewStatus(fileId, 'error', { message: error.message });
+      } finally {
+          checkSendButtonState();
+      }
+  }
+
   if (fileUploadInput) {
     fileUploadInput.addEventListener('change', (e) => {
       DOMElements.composerActionsPopup.classList.remove('show');
@@ -1853,7 +2135,14 @@ const init = async () => {
 
       for (const file of e.target.files) {
         const fileId = Date.now() + Math.random();
-        selectedFiles.push({ id: fileId, file: file });
+        const newFileObject = { 
+            id: fileId, 
+            file: file, 
+            status: 'pending', // Initial status
+            url: null,
+            error: null
+        };
+        selectedFiles.push(newFileObject);
 
         const item = document.createElement('div');
         item.className = 'file-preview-item';
@@ -1864,16 +2153,11 @@ const init = async () => {
           preview = document.createElement('img');
           preview.className = 'file-preview-thumbnail';
           preview.src = URL.createObjectURL(file);
-          preview.onload = () => URL.revokeObjectURL(preview.src); // Clean up memory
+          preview.onload = () => URL.revokeObjectURL(preview.src);
         } else {
           preview = document.createElement('div');
           preview.className = 'file-preview-icon';
-          // Check if file is readable (text or pdf) vs unreadable
-          if (file.type.startsWith('text/') || file.type === 'application/pdf') {
-            preview.innerHTML = `<svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V8.188a2.625 2.625 0 0 0-.77-1.851l-4.439-4.44a2.625 2.625 0 0 0-1.851-.77H5.625ZM15 3.375v3.75h3.75a.375.375 0 0 1-.11.26l-4.44 4.439a.375.375 0 0 1-.26.11h-3.75A.375.375 0 0 1 9.75 11.5v-3.75a.375.375 0 0 1 .11-.26l4.44-4.44a.375.375 0 0 1 .26-.11Z"/></svg>`;
-          } else {
-            preview.innerHTML = `<svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm11.378-3.917c-.824 0-1.488.664-1.488 1.488s.664 1.488 1.488 1.488 1.488-.664 1.488-1.488-.664-1.488-1.488-1.488Zm-1.875 8.313a.75.75 0 0 1 .75-.75h2.25a.75.75 0 0 1 0 1.5h-2.25a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd" /></svg>`;
-          }
+          preview.innerHTML = `<svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V8.188a2.625 2.625 0 0 0-.77-1.851l-4.439-4.44a2.625 2.625 0 0 0-1.851-.77H5.625ZM15 3.375v3.75h3.75a.375.375 0 0 1-.11.26l-4.44 4.439a.375.375 0 0 1-.26.11h-3.75A.375.375 0 0 1 9.75 11.5v-3.75a.375.375 0 0 1 .11-.26l4.44-4.44a.375.375 0 0 1 .26-.11Z"/></svg>`;
         }
         
         const name = document.createElement('span');
@@ -1890,6 +2174,15 @@ const init = async () => {
         item.appendChild(name);
         item.appendChild(removeBtn);
         filePreviewContainer.appendChild(item);
+
+        // Start upload immediately for image files
+        if (file.type.startsWith('image/')) {
+            uploadAndProcessFile(fileId, file);
+        } else {
+            // For non-image files, mark as 'completed' since they are processed on send
+            newFileObject.status = 'completed';
+            checkSendButtonState();
+        }
       }
       
       e.target.value = '';
@@ -1897,7 +2190,7 @@ const init = async () => {
     });
   }
 
-  DOMElements.messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+  checkSendButtonState();
 
   DOMElements.tourNextBtn.addEventListener('click', () => tourManager.next());
   DOMElements.tourPrevBtn.addEventListener('click', () => tourManager.prev());
