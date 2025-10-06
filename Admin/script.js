@@ -1,4 +1,4 @@
-// ---------- JAVASCRIPT IS COMPLETELY UNCHANGED AS REQUESTED (EXTENDED, NON-BREAKING) ----------
+// ---------- JAVASCRIPT(EXTENDED) ----------
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
@@ -21,7 +21,6 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-const ADMIN_UID = 'oQ2VYs9ZRONR2lqhcUWM1OocKpl1';
 // ---------- DOM REFS ----------
 const appEl = document.getElementById('app');
 const loginScreen = document.getElementById('loginScreen');
@@ -30,7 +29,7 @@ const loginEmail = document.getElementById('loginEmail');
 const loginPassword = document.getElementById('loginPassword');
 const toastContainer = document.getElementById('toastContainer');
 
-const views = ['dashboard','moderation','personalities','apikeys','config','users','sessions','chats','logs'];
+const views = ['dashboard', 'announcements', 'moderation','personalities','apikeys','config','users','sessions','chats','logs'];
 const pageTitle = document.getElementById('pageTitle');
 const adminStatus = document.getElementById('adminStatus');
 const adminEmail = document.getElementById('adminEmail');
@@ -41,6 +40,16 @@ const totalUsersEl = document.getElementById('totalUsers');
 const totalSessionsEl = document.getElementById('totalSessions');
 const recentList = document.getElementById('recentList');
 
+// Announcement refs
+const announcementForm = document.getElementById('announcementForm');
+const announcementTitleInput = document.getElementById('announcementTitle');
+const announcementDescriptionInput = document.getElementById('announcementDescription');
+const announcementFullContentInput = document.getElementById('announcementFullContent');
+const announcementMediaFileInput = document.getElementById('announcementMediaFile');
+const announcementMediaPreview = document.getElementById('announcementMediaPreview');
+const announcementMediaTypeSelect = document.getElementById('announcementMediaType');
+const announcementIsActiveSelect = document.getElementById('announcementIsActive');
+
 // moderation refs
 const blockedUsersList = document.getElementById('blocked-users-list');
 const blockedSessionsList = document.getElementById('blocked-sessions-list');
@@ -50,7 +59,7 @@ const addPersonalityForm = document.getElementById('addPersonalityForm');
 const personalityNameInput = document.getElementById('personalityName');
 const personalityDescriptionInput = document.getElementById('personalityDescription');
 const personalityPersonaInput = document.getElementById('personalityPersona');
-const personalityVideoFileInput = document.getElementById('personalityVideoFile'); // ✅ [NEW]
+const personalityVideoFileInput = document.getElementById('personalityVideoFile');
 const personalitiesList = document.getElementById('personalitiesList');
 const editPersonalityModal = document.getElementById('editPersonalityModal');
 const editPersonalityForm = document.getElementById('editPersonalityForm');
@@ -58,9 +67,9 @@ const editPersonalityId = document.getElementById('editPersonalityId');
 const editPersonalityName = document.getElementById('editPersonalityName');
 const editPersonalityDescription = document.getElementById('editPersonalityDescription');
 const editPersonalityPersona = document.getElementById('editPersonalityPersona');
-const editPersonalityVideoFileInput = document.getElementById('editPersonalityVideoFile'); // ✅ [NEW]
-const currentVideoStatus = document.getElementById('currentVideoStatus'); // ✅ [NEW]
-const removeVideoBtn = document.getElementById('removeVideoBtn'); // ✅ [NEW]
+const editPersonalityVideoFileInput = document.getElementById('editPersonalityVideoFile');
+const currentVideoStatus = document.getElementById('currentVideoStatus');
+const removeVideoBtn = document.getElementById('removeVideoBtn');
 const cancelEditBtn = document.getElementById('cancelEditBtn');
 const closeEditModalOverlay = document.getElementById('closeEditModalOverlay');
 
@@ -69,6 +78,8 @@ const apiKeysList = document.getElementById('apiKeysList');
 const newKeyType = document.getElementById('newKeyType');
 const newKeyInput = document.getElementById('newKeyInput');
 const addApiKeyBtn = document.getElementById('addApiKeyBtn');
+const newKeyVoiceIdGroup = document.getElementById('newKeyVoiceIdGroup');
+const newKeyVoiceId = document.getElementById('newKeyVoiceId');
 
 // config refs
 const cfgBotName = document.getElementById('cfgBotName');
@@ -116,7 +127,8 @@ let chatsUnsub = null;
 let latestConfig = null;
 let sessionsUnsubs = [];
 let personalitiesUnsub = null;
-let videoShouldBeRemoved = false; // ✅ [NEW] State for video removal
+let videoShouldBeRemoved = false;
+let announcementUnsub = null;
 
 // ---------- UI HELPERS ----------
 function showToast(message, type = 'success') {
@@ -159,6 +171,7 @@ function showView(name){
   navButtons.forEach(b => b.classList.toggle('active', b.dataset.view === name));
 }
 navButtons.forEach(btn => btn.addEventListener('click', () => showView(btn.dataset.view)));
+
 // ---------- AUTH ----------
 loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -171,34 +184,44 @@ loginForm.addEventListener('submit', async (e) => {
     }
   });
 });
+
 onAuthStateChanged(auth, async (user) => {
   if (user) {
-    if (user.uid !== ADMIN_UID) {
+    // === ✅ NEW AUTHENTICATION LOGIC INTEGRATED HERE ===
+    const adminRef = doc(db, "admins", user.uid);
+    const adminSnap = await getDoc(adminRef);
+
+    if (adminSnap.exists() && adminSnap.data().role === "admin") {
+      // User IS an admin, proceed to load the admin panel
+      console.log("✅ Admin detected:", user.email);
+      adminStatus.textContent = 'Signed in as';
+      adminEmail.textContent = user.email || user.uid;
+      loginScreen.classList.add('hidden');
+      appEl.classList.remove('loading');
+      initAdmin();
+    } else {
+      // User is NOT an admin, deny access
+      console.log("👤 Access Denied for user:", user.email);
       adminStatus.textContent = 'Not authorized';
       adminEmail.textContent = 'Unauthorized';
-      await signOut(auth);
-      showToast('You are not the configured admin.', 'error');
-      loginScreen.classList.remove('hidden');
-      appEl.classList.add('loading');
-      return;
+      await signOut(auth); // Sign out the non-admin user
+      showToast('Access denied. You do not have admin privileges.', 'error');
+      loginScreen.classList.remove('hidden'); // Show the login screen
+      appEl.classList.add('loading'); // Hide the admin panel content
     }
-    adminStatus.textContent = 'Signed in as';
-    adminEmail.textContent = user.email || user.uid;
-    loginScreen.classList.add('hidden');
-    appEl.classList.remove('loading');
-  
-    initAdmin();
+    // === END OF NEW AUTHENTICATION LOGIC ===
   } else {
+    // User is not logged in
     adminStatus.textContent = 'Not signed in';
     adminEmail.textContent = '--';
     loginScreen.classList.remove('hidden');
     appEl.classList.add('loading');
   }
 });
+
 signOutBtn.addEventListener('click', async () => { await signOut(auth); location.reload(); });
 
 // ---------- CORE LOGIC ----------
-
 async function initAdmin(){
   await migrateOriginalPersona();
   subscribeConfig();
@@ -206,14 +229,97 @@ async function initAdmin(){
   subscribeLogs();
   subscribeModeration();
   subscribePersonalities();
+  initAnnouncements();
   showView('dashboard');
   getAllSessionsCount().catch(()=>{});
   refreshRecentActivity().catch(()=>{});
+  newKeyType.addEventListener('change', () => {
+    newKeyVoiceIdGroup.classList.toggle('hidden', newKeyType.value !== 'tts');
+  });
   setInterval(() => {
     getAllSessionsCount().catch(()=>{});
     refreshRecentActivity().catch(()=>{});
   }, 10000);
 }
+
+// ---------- ANNOUNCEMENT LOGIC (UNCHANGED) ----------
+function initAnnouncements() {
+    const announcementRef = doc(db, 'announcements', 'latest');
+    
+    if (announcementUnsub) announcementUnsub();
+    announcementUnsub = onSnapshot(announcementRef, (snap) => {
+        if (snap.exists()) {
+            const data = snap.data();
+            announcementTitleInput.value = data.title || '';
+            announcementDescriptionInput.value = data.description || '';
+            announcementFullContentInput.value = data.fullContent || '';
+            announcementMediaTypeSelect.value = data.mediaType || 'image';
+            announcementIsActiveSelect.value = data.isActive ? 'true' : 'false';
+
+            announcementMediaPreview.innerHTML = '';
+            if (data.mediaUrl) {
+                let mediaEl;
+                if (data.mediaType === 'video') {
+                    mediaEl = document.createElement('video');
+                    mediaEl.src = data.mediaUrl;
+                    mediaEl.controls = true;
+                } else {
+                    mediaEl = document.createElement('img');
+                    mediaEl.src = data.mediaUrl;
+                }
+                announcementMediaPreview.appendChild(mediaEl);
+            } else {
+                announcementMediaPreview.innerHTML = '<span class="small">No media uploaded</span>';
+            }
+        }
+    });
+
+    announcementForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        withLoader(e.submitter, handleAnnouncementSubmit);
+    });
+}
+
+async function handleAnnouncementSubmit() {
+    const title = announcementTitleInput.value.trim();
+    const description = announcementDescriptionInput.value.trim();
+    const fullContent = announcementFullContentInput.value.trim();
+    const mediaFile = announcementMediaFileInput.files[0];
+    const mediaType = announcementMediaTypeSelect.value;
+    const isActive = announcementIsActiveSelect.value === 'true';
+
+    if (!title || !description || !fullContent) {
+        throw new Error('Title, Description, and Full Details are required.');
+    }
+
+    let mediaUrl = null;
+    if (mediaFile) {
+        const resourceType = mediaFile.type.startsWith('video/') ? 'video' : 'image';
+        mediaUrl = await uploadToCloudinary(mediaFile, resourceType);
+    } else {
+        const existingDoc = await getDoc(doc(db, 'announcements', 'latest'));
+        if (existingDoc.exists()) {
+            mediaUrl = existingDoc.data().mediaUrl || null;
+        }
+    }
+
+    const announcementData = {
+        id: 'anno_' + Date.now(),
+        title,
+        description,
+        fullContent,
+        mediaUrl,
+        mediaType,
+        isActive,
+        createdAt: serverTimestamp()
+    };
+
+    await setDoc(doc(db, 'announcements', 'latest'), announcementData);
+    showToast('Announcement published successfully!');
+    announcementMediaFileInput.value = '';
+}
+
+// ---------- ALL OTHER FUNCTIONS (UNCHANGED) ----------
 
 function subscribeModeration() {
   const usersQuery = query(collection(db, "users"), where("blocked", "==", true));
@@ -317,8 +423,7 @@ function subscribeConfig(){
   });
 }
 
-// ✅ [NEW] Cloudinary Upload Helper
-async function uploadToCloudinary(file, resourceType = 'video') {
+async function uploadToCloudinary(file, resourceType = 'auto') {
     const CLOUDINARY_CLOUD_NAME = "dvjs45kft"; 
     const CLOUDINARY_UPLOAD_PRESET = "vevapvkv";
 
@@ -327,7 +432,7 @@ async function uploadToCloudinary(file, resourceType = 'video') {
     formData.append('file', file);
     formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
 
-    showToast('Uploading video...', 'success');
+    showToast(`Uploading ${resourceType}...`, 'success');
     const response = await fetch(url, {
         method: 'POST',
         body: formData,
@@ -336,15 +441,12 @@ async function uploadToCloudinary(file, resourceType = 'video') {
     if (!response.ok) {
         const errorData = await response.json();
         console.error("Cloudinary Error:", errorData);
-        throw new Error('Failed to upload video to Cloudinary.');
+        throw new Error(`Failed to upload ${resourceType} to Cloudinary.`);
     }
     
     const data = await response.json();
     return data.secure_url;
 }
-
-
-// ----- ⭐️ PERSONALITIES LOGIC (MODIFIED) ⭐️ -----
 
 async function migrateOriginalPersona() {
     try {
@@ -419,7 +521,6 @@ function subscribePersonalities() {
                 withLoader(e.currentTarget, () => handleSetDefaultPersonality(personality.id));
             });
             card.querySelector('.edit-btn').addEventListener('click', () => {
-                // ✅ [MODIFIED] Pass videoUrl to the edit modal
                 openEditModal(personality.id, personality.name, personality.persona, personality.description || '', personality.videoUrl || null);
             });
             card.querySelector('.delete-btn').addEventListener('click', (e) => {
@@ -436,7 +537,7 @@ addPersonalityForm.addEventListener('submit', (e) => {
         const name = personalityNameInput.value.trim();
         const description = personalityDescriptionInput.value.trim();
         const persona = personalityPersonaInput.value.trim();
-        const videoFile = personalityVideoFileInput.files[0]; // ✅ [NEW] Get the video file
+        const videoFile = personalityVideoFileInput.files[0];
 
         if (!name || !persona) {
             showToast('Name and Persona are required.', 'error');
@@ -445,7 +546,6 @@ addPersonalityForm.addEventListener('submit', (e) => {
         
         let videoUrl = null;
         if (videoFile) {
-            // ✅ [NEW] Upload video if present
             videoUrl = await uploadToCloudinary(videoFile, 'video');
         }
 
@@ -456,7 +556,7 @@ addPersonalityForm.addEventListener('submit', (e) => {
             name,
             description,
             persona,
-            videoUrl, // ✅ [NEW] Add videoUrl to the document
+            videoUrl,
             isDefault: currentPersonalities.empty,
             createdAt: serverTimestamp()
         };
@@ -507,16 +607,14 @@ async function handleDeletePersonality(docId, isDefault) {
     }
 }
 
-// ✅ [MODIFIED] Function to open the edit modal now handles video URL
 function openEditModal(id, name, persona, description, videoUrl) {
     editPersonalityId.value = id;
     editPersonalityName.value = name;
     editPersonalityPersona.value = persona;
     editPersonalityDescription.value = description;
     
-    // Reset video state
     videoShouldBeRemoved = false;
-    editPersonalityVideoFileInput.value = ''; // Clear file input
+    editPersonalityVideoFileInput.value = '';
 
     if (videoUrl) {
         currentVideoStatus.innerHTML = `Current: <a href="${videoUrl}" target="_blank" rel="noopener">View Video</a>`;
@@ -554,7 +652,7 @@ editPersonalityForm.addEventListener('submit', (e) => {
         const name = editPersonalityName.value.trim();
         const description = editPersonalityDescription.value.trim();
         const persona = editPersonalityPersona.value.trim();
-        const newVideoFile = editPersonalityVideoFileInput.files[0]; // ✅ [NEW] Check for a new video file
+        const newVideoFile = editPersonalityVideoFileInput.files[0];
 
         if (!id || !name || !persona) {
             showToast('Name and Persona are required.', 'error');
@@ -565,10 +663,8 @@ editPersonalityForm.addEventListener('submit', (e) => {
         const updateData = { name, description, persona };
 
         if (videoShouldBeRemoved) {
-             // ✅ [NEW] Handle video removal
             updateData.videoUrl = deleteField();
         } else if (newVideoFile) {
-            // ✅ [NEW] Handle new video upload
             updateData.videoUrl = await uploadToCloudinary(newVideoFile, 'video');
         }
 
@@ -584,8 +680,6 @@ editPersonalityForm.addEventListener('submit', (e) => {
         closeEditModal();
     });
 });
-
-// ----- END PERSONALITIES LOGIC -----
 
 async function saveConfig(){
   const ref = doc(db, 'config', 'global');
@@ -672,9 +766,16 @@ function renderApiKeys(obj, liveStatus = {}){
         hasFailedRecently = true;
     }
 
+    const voiceIdHTML = k.type === 'tts'
+      ? `<div class="row" style="margin-top: 0.5rem;">
+           <input type="text" class="api-voice-id-input" data-id-voice="${id}" value="${k.voiceId || ''}" placeholder="Enter Voice ID (optional)">
+         </div>`
+      : '';
+
     row.innerHTML = `
       <div class="api-key-info">
         <input type="text" value="${(k.key||'')}" readonly />
+        ${voiceIdHTML}
         <div class="api-key-meta">
             <span class="small">${lastUsedStr}</span>
             ${isActive ? '<span class="status-badge active">In Use</span>' : ''}
@@ -691,6 +792,11 @@ function renderApiKeys(obj, liveStatus = {}){
     row.querySelector(`[data-del]`).addEventListener('click', () => removeApiKey(id));
     row.querySelector(`[data-enabled]`).addEventListener('change', (e) => toggleApiKeyEnabled(id, e.target.checked));
     row.querySelector(`select`).addEventListener('change', (e) => updateApiKeyType(id, e.target.value));
+
+    const voiceIdInput = row.querySelector('.api-voice-id-input');
+    if (voiceIdInput) {
+        voiceIdInput.addEventListener('change', (e) => updateApiKeyVoiceId(id, e.target.value.trim()));
+    }
   });
 }
 
@@ -698,12 +804,24 @@ addApiKeyBtn.addEventListener('click', (e) => withLoader(e.currentTarget, async 
   const type = newKeyType.value;
   const key = newKeyInput.value.trim();
   if (!key) { showToast('Key cannot be empty.', 'error'); return; }
+  
   const id = 'k_' + Date.now();
   const ref = doc(db, 'config', 'global');
   const update = {};
-  update[`apiKeys.${id}`] = { key, type, enabled: true };
+  
+  const keyData = { key, type, enabled: true };
+  if (type === 'tts') {
+    const voiceId = newKeyVoiceId.value.trim();
+    if (voiceId) {
+        keyData.voiceId = voiceId;
+    }
+  }
+
+  update[`apiKeys.${id}`] = keyData;
   await updateDoc(ref, update).catch(async () => { await setDoc(ref, update, { merge: true }); });
+  
   newKeyInput.value = '';
+  newKeyVoiceId.value = '';
   showToast('API Key added.');
 }));
 
@@ -738,7 +856,18 @@ async function updateApiKeyType(id, type) {
     showToast(`Key type updated to ${type}.`);
 }
 
-// --- ⭐ [NEW/IMPROVED] PROMPT SUGGESTION LOGIC ---
+async function updateApiKeyVoiceId(id, voiceId) {
+    const ref = doc(db, 'config', 'global');
+    const update = {};
+    update[`apiKeys.${id}.voiceId`] = voiceId;
+    try {
+        await updateDoc(ref, update);
+        showToast(`Voice ID updated.`);
+    } catch(e) {
+        showToast(`Failed to update Voice ID: ${e.message}`, 'error');
+    }
+}
+
 function renderPromptSuggestions(suggestions = []) {
     promptSuggestionsList.innerHTML = '';
     
@@ -772,7 +901,6 @@ function renderPromptSuggestions(suggestions = []) {
         promptSuggestionsList.appendChild(row);
     });
 
-    // Add event listeners after rendering all rows
     promptSuggestionsList.querySelectorAll('.suggestion-row').forEach(row => {
         const index = parseInt(row.dataset.index);
         const editSaveBtn = row.querySelector('.edit-save-btn');
@@ -794,7 +922,6 @@ function handleEditSaveSuggestion(row, index, button) {
     const isEditing = row.classList.contains('editing');
 
     if (isEditing) {
-        // --- SAVE LOGIC ---
         const icon = row.querySelector('.suggestion-icon-input').value.trim();
         const title = row.querySelector('.suggestion-title-input').value.trim();
         const prompt = row.querySelector('.suggestion-prompt-input').value.trim();
@@ -804,26 +931,20 @@ function handleEditSaveSuggestion(row, index, button) {
             return;
         }
 
-        // Update local state first for instant UI feedback
         latestConfig.promptSuggestions[index] = { icon, title, prompt };
         
-        // Update the read-only display before saving
         row.querySelector('.suggestion-icon-display').textContent = icon || '▫️';
         row.querySelector('.suggestion-title-display').textContent = title;
         row.querySelector('.suggestion-prompt-display').textContent = prompt;
 
-        // Save to Firestore
         saveSuggestionsToFirestore(latestConfig.promptSuggestions);
         showToast('Suggestion saved!');
 
-        // Switch back to read-only mode
         row.classList.remove('editing');
         button.textContent = 'Edit';
-        button.classList.remove('primary'); // Optional: make save button stand out
+        button.classList.remove('primary');
 
     } else {
-        // --- EDIT LOGIC ---
-        // Switch to edit mode
         row.classList.add('editing');
         button.textContent = 'Save';
         button.classList.add('primary');
@@ -873,7 +994,6 @@ async function saveSuggestionsToFirestore(suggestions) {
         showToast(`Failed to save suggestions: ${error.message}`, 'error');
     }
 }
-
 
 function subscribeUsers(){
   const ref = collection(db, 'users');
