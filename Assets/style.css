@@ -1603,3 +1603,53 @@ button {
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
 }
+
+/* --- 📢 [NEW] ANNOUNCEMENT MODAL STYLES --- */
+.announcement-popup-content {
+    padding: 0;
+    max-width: 420px;
+    overflow: hidden;
+    text-align: left;
+}
+.announcement-media {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background-color: var(--bg);
+}
+.announcement-media img,
+.announcement-media video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.announcement-text-content {
+    padding: 1.5rem 2rem;
+}
+#announcement-popup h3 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+#announcement-popup p {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+.announcement-actions {
+    padding: 0 2rem 1.5rem 2rem;
+    display: flex;
+}
+.announcement-actions .btn {
+    width: 100%;
+    justify-content: center;
+}
+
+.announcement-details-content {
+    max-width: 650px;
+    text-align: left;
+}
+#announcement-details-content {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-right: 1rem; /* for scrollbar */
+}
