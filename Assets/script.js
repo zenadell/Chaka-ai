@@ -1,9 +1,13 @@
-// --- FIREBASE IMPORTS & CONFIG (UNCHANGED) ---
+// --- ✅ [MODIFIED] FIREBASE IMPORTS & CONFIG ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
   getFirestore, doc, getDoc, setDoc, collection, addDoc, onSnapshot,
   query, orderBy, serverTimestamp, updateDoc, getDocs, writeBatch, where, limit, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import {
+  getAuth, onAuthStateChanged, signOut
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
 const firebaseConfig = {
   apiKey: "AIzaSyCBBm3pHDVgUYs2BTzwVwtTwC-cOAFjKWo",
   authDomain: "chakachaka-e672a.firebaseapp.com",
@@ -15,6 +19,7 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app); // Firebase Auth instance
 
 // --- PDF.js WORKER SETUP (UNCHANGED) ---
 if (window.pdfjsLib) {
@@ -22,7 +27,7 @@ if (window.pdfjsLib) {
 }
 
 
-// --- DOM ELEMENTS (UNCHANGED) ---
+// --- ✅ [MODIFIED] DOM ELEMENTS (Added signOutBtn and Announcement Modals) ---
 const DOMElements = {
   body: document.body,
   sidebar: document.getElementById('sidebar'),
@@ -36,6 +41,7 @@ const DOMElements = {
   scrollToBottomBtn: document.getElementById('scroll-to-bottom'),
   newChatSidebarBtn: document.getElementById('new-chat-sidebar-btn'),
   clearHistoryBtn: document.getElementById('clear-history-btn'),
+  signOutBtn: document.getElementById('sign-out-btn'), // New Button
   composerActionsBtn: document.getElementById('composer-actions-btn'),
   composerActionsPopup: document.getElementById('composer-actions-popup'),
   personalityList: document.getElementById('personality-list'),
@@ -63,6 +69,16 @@ const DOMElements = {
   welcomeTourModal: document.getElementById('welcome-tour-modal'),
   startTourBtn: document.getElementById('start-tour-btn'),
   skipTourBtn: document.getElementById('skip-tour-btn'),
+  // ✨ [NEW] Announcement Elements
+  announcementPopup: document.getElementById('announcement-popup'),
+  announcementMedia: document.getElementById('announcement-media'),
+  announcementTitle: document.getElementById('announcement-title'),
+  announcementDescription: document.getElementById('announcement-description'),
+  announcementReadMoreBtn: document.getElementById('announcement-read-more-btn'),
+  announcementCloseBtn: document.getElementById('announcement-close-btn'),
+  announcementDetailsModal: document.getElementById('announcement-details-modal'),
+  announcementDetailsContent: document.getElementById('announcement-details-content'),
+  announcementDetailsCloseBtn: document.getElementById('announcement-details-close-btn'),
 };
 
 // --- APPLICATION STATE (UNCHANGED) ---
@@ -80,7 +96,10 @@ let state = {
   triggers: [],
   triggerUnsub: null,
   sessionWasPreviouslyBlocked: false,
-  subtleNoteShown: false
+  subtleNoteShown: false,
+  // ✨ [NEW] Announcement State
+  announcementUnsub: null,
+  currentAnnouncement: null,
 };
 
 // --- STATE FOR AUTOMATED API RETRY PROCESS (UNCHANGED) ---
@@ -95,11 +114,11 @@ let fetchController;
 // --- GLOBAL STATE FOR MULTIPLE FILE UPLOADS (UNCHANGED) ---
 let selectedFiles = []; 
 
-// --- ✅ [MODIFIED] TTS (TEXT-TO-SPEECH) PLAYBACK STATE ---
+// --- TTS (TEXT-TO-SPEECH) PLAYBACK STATE (UNCHANGED) ---
 let currentAudio = null;
 let currentTtsButton = null;
 
-// --- ✅ [MODIFIED] botConfig with TTS properties ---
+// --- botConfig with TTS properties (UNCHANGED) ---
 let botConfig = {
   botName: "AI Bot",
   themeColor: "#4F46E5",
@@ -117,6 +136,129 @@ let botConfig = {
   blockReminderNote: "",
   promptSuggestions: []
 };
+
+// --- ✨ [NEW] ANNOUNCEMENT LOGIC ---
+/**
+ * Closes all announcement-related modals and the overlay.
+ */
+function closeAnnouncementModals() {
+    if (DOMElements.announcementPopup) DOMElements.announcementPopup.classList.add('hidden');
+    if (DOMElements.announcementDetailsModal) DOMElements.announcementDetailsModal.classList.add('hidden');
+    
+    // Only hide the overlay if no other modals are active
+    const isAnotherModalOpen = !DOMElements.personalityPreviewModal.classList.contains('hidden') ||
+                               !document.getElementById('continuation-modal').classList.contains('hidden') ||
+                               !DOMElements.welcomeTourModal.classList.contains('hidden');
+    if (!isAnotherModalOpen) {
+        DOMElements.overlay.classList.remove('show');
+    }
+}
+
+/**
+ * Displays the modal with the full announcement details.
+ * @param {object} announcement - The announcement data object from Firestore.
+ */
+function showAnnouncementDetails(announcement) {
+    if (!DOMElements.announcementDetailsModal || !announcement) return;
+    
+    // Use marked.js to parse Markdown content for rich text
+    DOMElements.announcementDetailsContent.innerHTML = marked.parse(announcement.fullContent || 'No details available.');
+    DOMElements.announcementDetailsModal.classList.remove('hidden');
+    // Ensure the main popup is hidden to avoid overlap
+    if (DOMElements.announcementPopup) DOMElements.announcementPopup.classList.add('hidden');
+    DOMElements.overlay.classList.add('show');
+}
+
+/**
+ * Displays the initial announcement pop-up.
+ * @param {object} announcement - The announcement data object from Firestore.
+ */
+function showAnnouncementPopup(announcement) {
+    if (!DOMElements.announcementPopup || !announcement) return;
+    state.currentAnnouncement = announcement;
+
+    // Set title and description
+    DOMElements.announcementTitle.textContent = announcement.title || 'Announcement';
+    DOMElements.announcementDescription.textContent = announcement.description || '';
+
+    // Clear previous media and create new element
+    DOMElements.announcementMedia.innerHTML = '';
+    let mediaElement;
+    if (announcement.mediaType === 'video' && announcement.mediaUrl) {
+        mediaElement = document.createElement('video');
+        mediaElement.src = announcement.mediaUrl;
+        mediaElement.autoplay = true;
+        mediaElement.muted = true;
+        mediaElement.loop = true;
+        mediaElement.playsInline = true;
+    } else if (announcement.mediaType === 'image' && announcement.mediaUrl) {
+        mediaElement = document.createElement('img');
+        mediaElement.src = announcement.mediaUrl;
+        mediaElement.alt = announcement.title || 'Announcement Image';
+    }
+    
+    if (mediaElement) {
+        DOMElements.announcementMedia.appendChild(mediaElement);
+        DOMElements.announcementMedia.classList.remove('hidden');
+    } else {
+        DOMElements.announcementMedia.classList.add('hidden');
+    }
+
+    // Show the popup and overlay
+    DOMElements.announcementPopup.classList.remove('hidden');
+    DOMElements.overlay.classList.add('show');
+}
+
+/**
+ * Processes the announcement data from Firestore and decides whether to show the popup.
+ * @param {object|null} announcement - The announcement data object from Firestore.
+ */
+function handleAnnouncementData(announcement) {
+    // Condition 1: No active announcement exists
+    if (!announcement || !announcement.isActive || !announcement.id) {
+        return;
+    }
+
+    // Condition 2: Check if it has been shown in the current browser session
+    const shownThisSession = sessionStorage.getItem('announcementShownThisSession') === announcement.id;
+    if (shownThisSession) {
+        return;
+    }
+
+    // Condition 3: Check the persistent view count (max 3 times)
+    const viewCountKey = `announcement_views_${announcement.id}`;
+    let viewCount = parseInt(localStorage.getItem(viewCountKey) || '0');
+    if (viewCount >= 3) {
+        return;
+    }
+
+    // If all conditions pass, show the announcement after a delay
+    setTimeout(() => {
+        showAnnouncementPopup(announcement);
+        
+        // Update tracking
+        viewCount++;
+        localStorage.setItem(viewCountKey, viewCount.toString());
+        sessionStorage.setItem('announcementShownThisSession', announcement.id);
+    }, 5000); // 5-second delay
+}
+
+/**
+ * Initializes the real-time listener for the latest announcement.
+ */
+function initAnnouncementListener() {
+    if (state.announcementUnsub) state.announcementUnsub(); // Unsubscribe from any previous listener
+
+    const announcementRef = doc(db, 'announcements', 'latest');
+    state.announcementUnsub = onSnapshot(announcementRef, (docSnap) => {
+        if (docSnap.exists()) {
+            handleAnnouncementData(docSnap.data());
+        }
+    }, (error) => {
+        console.error("Error listening to announcements:", error);
+    });
+}
+
 
 // --- API KEY MANAGEMENT (UNCHANGED) ---
 const apiKeyManager = {
@@ -425,7 +567,7 @@ const applyConfigToUI = () => {
   DOMElements.sendBtn.disabled = false;
 };
 
-// --- ✅ [UPDATED] TEXT-TO-SPEECH (TTS) FUNCTIONS ---
+// --- TEXT-TO-SPEECH (TTS) FUNCTIONS (UNCHANGED) ---
 function stopCurrentAudio() {
     if (currentAudio) {
         currentAudio.pause();
@@ -446,7 +588,6 @@ async function playTextAsSpeech(text, buttonElement) {
         return;
     }
 
-    // If the clicked button is for the currently active audio
     if (buttonElement === currentTtsButton && currentAudio) {
         if (currentAudio.paused) {
             currentAudio.play();
@@ -456,14 +597,12 @@ async function playTextAsSpeech(text, buttonElement) {
         return;
     }
 
-    // Stop any currently playing audio before starting a new one
     stopCurrentAudio();
 
     currentTtsButton = buttonElement;
     currentTtsButton.classList.add('loading');
 
     try {
-        // Use the streaming endpoint which can be more reliable for client-side calls
         const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${botConfig.ttsVoiceId}/stream`, {
             method: 'POST',
             headers: {
@@ -472,7 +611,7 @@ async function playTextAsSpeech(text, buttonElement) {
                 'xi-api-key': botConfig.ttsApiKey,
             },
             body: JSON.stringify({
-                text: text.replace(/!\[[^\]]*\]\([^)]*\)/g, ''), // Remove image markdown
+                text: text.replace(/!\[[^\]]*\]\([^)]*\)/g, ''),
                 model_id: 'eleven_multilingual_v2',
                 voice_settings: {
                     stability: 0.5,
@@ -484,7 +623,6 @@ async function playTextAsSpeech(text, buttonElement) {
         if (!response.ok) {
             let errorMsg = 'Failed to generate audio from the service.';
             try {
-                // Try to get a detailed error message from the response body
                 const errorData = await response.json();
                 if (errorData.detail && errorData.detail.message) {
                     errorMsg = errorData.detail.message;
@@ -494,13 +632,11 @@ async function playTextAsSpeech(text, buttonElement) {
                     errorMsg = `HTTP Error: ${response.status} ${response.statusText}`;
                 }
             } catch (e) {
-                // If the body is not JSON or can't be read, use the status text
                 errorMsg = `HTTP Error: ${response.status} ${response.statusText}`;
             }
-             // Specifically handle the "Unusual Activity" error from the screenshot
             if (errorMsg.toLowerCase().includes("unusual activity") || errorMsg.toLowerCase().includes("free tier usage disabled")) {
                 alert("This page says: Unusual activity detected. Free Tier usage disabled. This can happen when using a proxy/VPN or due to browser security restrictions. Please try disabling any VPN or contact the administrator.");
-                throw new Error("ElevenLabs API usage disabled."); // Throw to be caught by the outer catch
+                throw new Error("ElevenLabs API usage disabled.");
             }
             throw new Error(errorMsg);
         }
@@ -525,13 +661,12 @@ async function playTextAsSpeech(text, buttonElement) {
 
     } catch (error) {
         console.error('Text-to-Speech Error:', error);
-        // The "Failed to fetch" error happens when the request is blocked before a response is received (e.g., CORS preflight failure)
         if (error.message.includes("Failed to fetch")) {
              alert("Could not play audio: The request was blocked. This is often due to a network issue or browser security (CORS) policy. Please check your connection or contact the administrator.");
-        } else if (!error.message.includes("ElevenLabs API usage disabled")) { // Avoid showing a second alert
+        } else if (!error.message.includes("ElevenLabs API usage disabled")) {
             alert(`Could not play audio: ${error.message}`);
         }
-        stopCurrentAudio(); // Clean up on error
+        stopCurrentAudio();
     }
 }
 
@@ -877,7 +1012,7 @@ async function handleUserMessage(text) {
   return out;
 }
 
-// --- ✅ [MODIFIED] loadConfigLive with TTS key logic ---
+// --- loadConfigLive (UNCHANGED) ---
 function loadConfigLive() {
   if (state.configPromise) return state.configPromise;
 state.configPromise = (async () => {
@@ -887,7 +1022,6 @@ state.configPromise = (async () => {
       botConfig.allowFileUpload = parseBool(botConfig.allowFileUpload);
       botConfig.apiKeys = botConfig.apiKeys || {};
       
-      // Handle TTS API Key
       const ttsKeyEntry = Object.values(botConfig.apiKeys).find(k => k && k.type === 'tts' && k.enabled !== false);
       botConfig.ttsApiKey = ttsKeyEntry ? ttsKeyEntry.key : null;
       botConfig.ttsVoiceId = ttsKeyEntry ? ttsKeyEntry.voiceId || 'JBFqnCBsd6RMkjVDRZzb' : 'JBFqnCBsd6RMkjVDRZzb';
@@ -958,13 +1092,13 @@ function subscribeSessions() {
   });
 }
 
-// --- ✅ [MODIFIED] subscribeMessages to add TTS button ---
+// --- subscribeMessages (UNCHANGED) ---
 function subscribeMessages() {
   if (!state.sessionId) return;
   if (state.messagesUnsub) state.messagesUnsub();
   const q = query(collection(db, 'chats', state.userId, state.sessionId), orderBy('createdAt', 'asc'));
   state.messagesUnsub = onSnapshot(q, snap => {
-    stopCurrentAudio(); // Stop any TTS when messages re-render
+    stopCurrentAudio();
     const container = DOMElements.chatMessages;
     container.querySelectorAll('.streaming').forEach(el => el.remove());
     container.innerHTML = '';
@@ -1069,7 +1203,6 @@ function subscribeMessages() {
       
       const hasTextContent = (msg.text || '').trim().length > 0;
       if (msg.sender === 'bot' && hasTextContent && !imageRegex.test(msg.text) && !placeholderRegex.test(msg.text)) {
-        // TTS Button
         const ttsBtn = document.createElement('button');
         ttsBtn.className = 'tts-btn';
         ttsBtn.title = 'Listen to message';
@@ -1081,7 +1214,6 @@ function subscribeMessages() {
         ttsBtn.onclick = () => playTextAsSpeech(msg.text, ttsBtn);
         el.appendChild(ttsBtn);
 
-        // Copy Button
         const copyBtn = document.createElement('button');
         copyBtn.className = 'copy-message-btn';
         copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1z"/></svg>`;
@@ -1110,7 +1242,7 @@ function subscribeMessages() {
   }, err => console.error('Messages snapshot error', err));
 }
 
-// --- USER TRACKING & OTHER SESSION MANAGEMENT (UNCHANGED) ---
+// --- USER TRACKING & OTHER SESSION MANAGEMENT ---
 function parseUserAgent(ua) {
     const parser = {};
     const regex = {
@@ -1148,23 +1280,37 @@ async function trackUserLocationAndDevice() {
         return { userAgent: navigator.userAgent, ...deviceInfo };
     }
 }
-async function ensureUser(){
-  const ref = doc(db, 'users', state.userId);
-  const trackingData = await trackUserLocationAndDevice();
+
+// --- ✅ [MODIFIED] ensureUser to use authenticated user object ---
+async function ensureUser(authUser){
+  const ref = doc(db, 'users', authUser.uid);
   const s = await getDoc(ref);
+  const trackingData = await trackUserLocationAndDevice();
+
   if (!s.exists()) {
+    // Create new user document in Firestore
     const initialData = {
-      blocked: false, createdAt: serverTimestamp(), lastSeen: serverTimestamp(),
-      activityStatus: 'Active', ...(trackingData || {})
+      email: authUser.email,
+      displayName: authUser.displayName || 'New User',
+      photoURL: authUser.photoURL,
+      blocked: false, 
+      createdAt: serverTimestamp(), 
+      lastSeen: serverTimestamp(),
+      activityStatus: 'Active', 
+      ...(trackingData || {})
     };
     await setDoc(ref, initialData);
   } else {
+    // Update existing user document
     const updateData = {
-      lastSeen: serverTimestamp(), activityStatus: 'Active', ...(trackingData || {})
+      lastSeen: serverTimestamp(), 
+      activityStatus: 'Active', 
+      ...(trackingData || {})
     };
     await updateDoc(ref, updateData).catch(() => {});
   }
 }
+
 async function ensureSessionMetadataOnFirstMsg(sid, msg){
   const ref=doc(db,'sessions',state.userId,'items',sid);
   const s = await getDoc(ref);
@@ -1297,7 +1443,7 @@ function stopApiRequestLoop() {
     }
 }
 
-// --- makeApiRequest (UNCHANGED from previous) ---
+// --- makeApiRequest (UNCHANGED) ---
 async function makeApiRequest(requestBody, apiKey, abortSignal) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(endpoint, {
@@ -1535,7 +1681,7 @@ async function executeApiRequestLoop() {
 }
 
 
-// --- sendMessage (UNCHANGED from previous) ---
+// --- sendMessage (UNCHANGED) ---
 async function sendMessage() {
     const text = sanitize(DOMElements.messageInput.value);
 
@@ -2034,177 +2180,230 @@ async function checkAndStartTour() {
     }
 }
 
-
-// --- INIT FUNCTION (UNCHANGED) ---
-const init = async () => {
-  state.userId = localStorage.getItem('chatUserId') || crypto.randomUUID();
-  localStorage.setItem('chatUserId', state.userId);
-  state.sessionId = localStorage.getItem('chatSessionId') || null;
-  state.selectedPersonalityId = localStorage.getItem('selectedPersonalityId') || null;
-  applyTheme(state.currentTheme);
+// --- ✅ [NEW] SIGN OUT FUNCTION ---
+async function signOutUser() {
+  if (!confirm('Are you sure you want to sign out?')) return;
   try {
-    await loadConfigLive();
-    subscribeAndDisplayPersonalities();
-    DOMElements.sendBtn.disabled = false;
-  } catch (err) {
-    console.warn('Config/Personality load failed:', err);
-    DOMElements.statusRow.textContent = `Bot init failed: ${err.message}`;
-    DOMElements.sendBtn.disabled = false;
+    stopCurrentAudio();
+    await signOut(auth);
+    // The onAuthStateChanged listener in init() will automatically handle
+    // clearing state and redirecting to the login page.
+    console.log("User signed out successfully.");
+  } catch (error) {
+    console.error("Sign out error:", error);
+    alert("Failed to sign out. Please try again.");
   }
-  await ensureUser().catch(e => console.error('ensureUser failed', e));
-  
-  await checkAndStartTour();
+}
 
-  subscribeSessions();
-  if (state.sessionId) {
-    const snap = await getDoc(doc(db,'sessions',state.userId,'items',state.sessionId));
-    state.firstMessageSaved = snap.exists();
-    subscribeMessages();
-    await checkSessionWasPreviouslyBlocked();
-  } else {
-    startNewChat();
-  }
-  DOMElements.menuBtn.addEventListener('click', () => {
-    DOMElements.sidebar.classList.toggle('open');
-    DOMElements.overlay.classList.toggle('show');
-  });
-  DOMElements.overlay.addEventListener('click', () => {
-      DOMElements.sidebar.classList.remove('open');
-      DOMElements.composerActionsPopup.classList.remove('show');
-      DOMElements.composerActionsBtn.classList.remove('active');
-      DOMElements.overlay.classList.remove('show');
-      DOMElements.welcomeTourModal.classList.add('hidden');
-  });
-  const handleNewChat = () => {
-      startNewChat();
-      if (window.innerWidth<=900) {
-        DOMElements.sidebar.classList.remove('open');
-        DOMElements.overlay.classList.remove('show');
-      }
-  };
-  DOMElements.newChatSidebarBtn.addEventListener('click', handleNewChat);
-  DOMElements.clearHistoryBtn.addEventListener('click', clearHistory);
-  DOMElements.messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); DOMElements.sendBtn.click(); } });
-  DOMElements.chatMessages.addEventListener('scroll', () => {
-    const isScrolledUp = DOMElements.chatMessages.scrollHeight - DOMElements.chatMessages.scrollTop - DOMElements.chatMessages.clientHeight > 200;
-    DOMElements.scrollToBottomBtn.classList.toggle('visible', isScrolledUp);
-  });
-  DOMElements.scrollToBottomBtn.addEventListener('click', () => scrollToBottom('smooth'));
-  const composerObserver = new ResizeObserver(entries => { document.documentElement.style.setProperty('--composer-height', `${entries[0].target.offsetHeight}px`); });
-  composerObserver.observe(DOMElements.composer);
-  DOMElements.composerActionsBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isOpening = !DOMElements.composerActionsBtn.classList.contains('active');
-      DOMElements.composerActionsPopup.classList.toggle('show', isOpening);
-      DOMElements.composerActionsBtn.classList.toggle('active', isOpening);
-      DOMElements.overlay.classList.toggle('show', isOpening);
-  });
+// --- ✅ [MODIFIED] INIT FUNCTION ---
+const init = () => {
+  // This listener is the new entry point of the app.
+  // It determines if a user is logged in before running any chat logic.
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      // --- USER IS AUTHENTICATED ---
+      DOMElements.body.style.opacity = 1; // Make the app visible
 
-  const fileUploadInput = document.getElementById('file-upload');
-  const filePreviewContainer = document.getElementById('file-preview-container');
-  
-  async function uploadAndProcessFile(fileId, file) {
-      const fileObject = selectedFiles.find(f => f.id === fileId);
-      if (!fileObject) return;
+      // Set the global userId from the authenticated user
+      state.userId = user.uid;
+
+      // --- ALL ORIGINAL INITIALIZATION LOGIC NOW RUNS HERE ---
+      state.sessionId = localStorage.getItem('chatSessionId') || null;
+      state.selectedPersonalityId = localStorage.getItem('selectedPersonalityId') || null;
+      applyTheme(state.currentTheme);
 
       try {
-          fileObject.status = 'uploading';
-          updateFilePreviewStatus(fileId, 'uploading');
-          checkSendButtonState();
-          
-          const url = await uploadFileToCloudinary(file);
-          
-          fileObject.status = 'completed';
-          fileObject.url = url;
-          updateFilePreviewStatus(fileId, 'completed');
-
-      } catch (error) {
-          fileObject.status = 'error';
-          fileObject.error = error.message;
-          updateFilePreviewStatus(fileId, 'error', { message: error.message });
-      } finally {
-          checkSendButtonState();
+        await loadConfigLive();
+        subscribeAndDisplayPersonalities();
+        DOMElements.sendBtn.disabled = false;
+      } catch (err) {
+        console.warn('Config/Personality load failed:', err);
+        DOMElements.statusRow.textContent = `Bot init failed: ${err.message}`;
+        DOMElements.sendBtn.disabled = false;
       }
-  }
 
-  if (fileUploadInput) {
-    fileUploadInput.addEventListener('change', (e) => {
-      DOMElements.composerActionsPopup.classList.remove('show');
-      DOMElements.composerActionsBtn.classList.remove('active');
-      DOMElements.overlay.classList.remove('show');
-
-      for (const file of e.target.files) {
-        const fileId = Date.now() + Math.random();
-        const newFileObject = { 
-            id: fileId, 
-            file: file, 
-            status: 'pending', // Initial status
-            url: null,
-            error: null
-        };
-        selectedFiles.push(newFileObject);
-
-        const item = document.createElement('div');
-        item.className = 'file-preview-item';
-        item.id = `file-preview-${fileId}`;
-
-        let preview;
-        if (file.type.startsWith('image/')) {
-          preview = document.createElement('img');
-          preview.className = 'file-preview-thumbnail';
-          preview.src = URL.createObjectURL(file);
-          preview.onload = () => URL.revokeObjectURL(preview.src);
-        } else {
-          preview = document.createElement('div');
-          preview.className = 'file-preview-icon';
-          preview.innerHTML = `<svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V8.188a2.625 2.625 0 0 0-.77-1.851l-4.439-4.44a2.625 2.625 0 0 0-1.851-.77H5.625ZM15 3.375v3.75h3.75a.375.375 0 0 1-.11.26l-4.44 4.439a.375.375 0 0 1-.26.11h-3.75A.375.375 0 0 1 9.75 11.5v-3.75a.375.375 0 0 1 .11-.26l4.44-4.44a.375.375 0 0 1 .26-.11Z"/></svg>`;
-        }
-        
-        const name = document.createElement('span');
-        name.className = 'file-preview-name';
-        name.textContent = file.name;
-
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'remove-file-btn';
-        removeBtn.innerHTML = '&times;';
-        removeBtn.title = 'Remove file';
-        removeBtn.onclick = () => removeFile(fileId);
-
-        item.appendChild(preview);
-        item.appendChild(name);
-        item.appendChild(removeBtn);
-        filePreviewContainer.appendChild(item);
-
-        // Start upload immediately for image files
-        if (file.type.startsWith('image/')) {
-            uploadAndProcessFile(fileId, file);
-        } else {
-            // For non-image files, mark as 'completed' since they are processed on send
-            newFileObject.status = 'completed';
-            checkSendButtonState();
-        }
-      }
+      await ensureUser(user).catch(e => console.error('ensureUser failed', e));
+      await checkAndStartTour();
+      initAnnouncementListener(); // ✨ [NEW] Start listening for announcements
+      subscribeSessions();
       
-      e.target.value = '';
-      updateFileInputUI();
-    });
-  }
+      if (state.sessionId) {
+        const snap = await getDoc(doc(db,'sessions',state.userId,'items',state.sessionId));
+        state.firstMessageSaved = snap.exists();
+        subscribeMessages();
+        await checkSessionWasPreviouslyBlocked();
+      } else {
+        startNewChat();
+      }
 
-  checkSendButtonState();
+      // --- ALL ORIGINAL EVENT LISTENERS ARE ATTACHED HERE ---
+      DOMElements.menuBtn.addEventListener('click', () => {
+        DOMElements.sidebar.classList.toggle('open');
+        DOMElements.overlay.classList.toggle('show');
+      });
+      DOMElements.overlay.addEventListener('click', () => {
+          DOMElements.sidebar.classList.remove('open');
+          DOMElements.composerActionsPopup.classList.remove('show');
+          DOMElements.composerActionsBtn.classList.remove('active');
+          DOMElements.overlay.classList.remove('show');
+          DOMElements.welcomeTourModal.classList.add('hidden');
+          closeAnnouncementModals(); // ✨ [NEW] Also close announcement modals on overlay click
+      });
+      const handleNewChat = () => {
+          startNewChat();
+          if (window.innerWidth<=900) {
+            DOMElements.sidebar.classList.remove('open');
+            DOMElements.overlay.classList.remove('show');
+          }
+      };
+      DOMElements.newChatSidebarBtn.addEventListener('click', handleNewChat);
+      DOMElements.clearHistoryBtn.addEventListener('click', clearHistory);
+      DOMElements.signOutBtn.addEventListener('click', signOutUser); // Attach sign out
+      DOMElements.messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); DOMElements.sendBtn.click(); } });
+      DOMElements.chatMessages.addEventListener('scroll', () => {
+        const isScrolledUp = DOMElements.chatMessages.scrollHeight - DOMElements.chatMessages.scrollTop - DOMElements.chatMessages.clientHeight > 200;
+        DOMElements.scrollToBottomBtn.classList.toggle('visible', isScrolledUp);
+      });
+      DOMElements.scrollToBottomBtn.addEventListener('click', () => scrollToBottom('smooth'));
+      const composerObserver = new ResizeObserver(entries => { document.documentElement.style.setProperty('--composer-height', `${entries[0].target.offsetHeight}px`); });
+      composerObserver.observe(DOMElements.composer);
+      DOMElements.composerActionsBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isOpening = !DOMElements.composerActionsBtn.classList.contains('active');
+          DOMElements.composerActionsPopup.classList.toggle('show', isOpening);
+          DOMElements.composerActionsBtn.classList.toggle('active', isOpening);
+          DOMElements.overlay.classList.toggle('show', isOpening);
+      });
 
-  DOMElements.tourNextBtn.addEventListener('click', () => tourManager.next());
-  DOMElements.tourPrevBtn.addEventListener('click', () => tourManager.prev());
-  DOMElements.tourFinishBtn.addEventListener('click', () => tourManager.end());
-  
-  DOMElements.startTourBtn.addEventListener('click', () => {
-      DOMElements.welcomeTourModal.classList.add('hidden');
-      DOMElements.overlay.classList.remove('show');
-      tourManager.start();
-  });
-  DOMElements.skipTourBtn.addEventListener('click', () => {
-      DOMElements.welcomeTourModal.classList.add('hidden');
-      DOMElements.overlay.classList.remove('show');
-      tourManager.end();
+      // ✨ [NEW] Event Listeners for Announcement Modals
+      if (DOMElements.announcementCloseBtn) {
+          DOMElements.announcementCloseBtn.addEventListener('click', closeAnnouncementModals);
+      }
+      if (DOMElements.announcementDetailsCloseBtn) {
+          DOMElements.announcementDetailsCloseBtn.addEventListener('click', closeAnnouncementModals);
+      }
+      if (DOMElements.announcementReadMoreBtn) {
+          DOMElements.announcementReadMoreBtn.addEventListener('click', () => {
+              if (state.currentAnnouncement) {
+                  showAnnouncementDetails(state.currentAnnouncement);
+              }
+          });
+      }
+
+      const fileUploadInput = document.getElementById('file-upload');
+      const filePreviewContainer = document.getElementById('file-preview-container');
+      
+      async function uploadAndProcessFile(fileId, file) {
+          const fileObject = selectedFiles.find(f => f.id === fileId);
+          if (!fileObject) return;
+
+          try {
+              fileObject.status = 'uploading';
+              updateFilePreviewStatus(fileId, 'uploading');
+              checkSendButtonState();
+              
+              const url = await uploadFileToCloudinary(file);
+              
+              fileObject.status = 'completed';
+              fileObject.url = url;
+              updateFilePreviewStatus(fileId, 'completed');
+
+          } catch (error) {
+              fileObject.status = 'error';
+              fileObject.error = error.message;
+              updateFilePreviewStatus(fileId, 'error', { message: error.message });
+          } finally {
+              checkSendButtonState();
+          }
+      }
+
+      if (fileUploadInput) {
+        fileUploadInput.addEventListener('change', (e) => {
+          DOMElements.composerActionsPopup.classList.remove('show');
+          DOMElements.composerActionsBtn.classList.remove('active');
+          DOMElements.overlay.classList.remove('show');
+
+          for (const file of e.target.files) {
+            const fileId = Date.now() + Math.random();
+            const newFileObject = { 
+                id: fileId, 
+                file: file, 
+                status: 'pending',
+                url: null,
+                error: null
+            };
+            selectedFiles.push(newFileObject);
+
+            const item = document.createElement('div');
+            item.className = 'file-preview-item';
+            item.id = `file-preview-${fileId}`;
+
+            let preview;
+            if (file.type.startsWith('image/')) {
+              preview = document.createElement('img');
+              preview.className = 'file-preview-thumbnail';
+              preview.src = URL.createObjectURL(file);
+              preview.onload = () => URL.revokeObjectURL(preview.src);
+            } else {
+              preview = document.createElement('div');
+              preview.className = 'file-preview-icon';
+              preview.innerHTML = `<svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V8.188a2.625 2.625 0 0 0-.77-1.851l-4.439-4.44a2.625 2.625 0 0 0-1.851-.77H5.625ZM15 3.375v3.75h3.75a.375.375 0 0 1-.11.26l-4.44 4.439a.375.375 0 0 1-.26.11h-3.75A.375.375 0 0 1 9.75 11.5v-3.75a.375.375 0 0 1 .11-.26l4.44-4.44a.375.375 0 0 1 .26-.11Z"/></svg>`;
+            }
+            
+            const name = document.createElement('span');
+            name.className = 'file-preview-name';
+            name.textContent = file.name;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-file-btn';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.title = 'Remove file';
+            removeBtn.onclick = () => removeFile(fileId);
+
+            item.appendChild(preview);
+            item.appendChild(name);
+            item.appendChild(removeBtn);
+            filePreviewContainer.appendChild(item);
+
+            if (file.type.startsWith('image/')) {
+                uploadAndProcessFile(fileId, file);
+            } else {
+                newFileObject.status = 'completed';
+                checkSendButtonState();
+            }
+          }
+          
+          e.target.value = '';
+          updateFileInputUI();
+        });
+      }
+
+      checkSendButtonState();
+
+      DOMElements.tourNextBtn.addEventListener('click', () => tourManager.next());
+      DOMElements.tourPrevBtn.addEventListener('click', () => tourManager.prev());
+      DOMElements.tourFinishBtn.addEventListener('click', () => tourManager.end());
+      
+      DOMElements.startTourBtn.addEventListener('click', () => {
+          DOMElements.welcomeTourModal.classList.add('hidden');
+          DOMElements.overlay.classList.remove('show');
+          tourManager.start();
+      });
+      DOMElements.skipTourBtn.addEventListener('click', () => {
+          DOMElements.welcomeTourModal.classList.add('hidden');
+          DOMElements.overlay.classList.remove('show');
+          tourManager.end();
+      });
+
+    } else {
+      // --- USER IS NOT AUTHENTICATED ---
+      // Clear any sensitive local storage that depends on the user
+      localStorage.removeItem('chatSessionId');
+      localStorage.removeItem('selectedPersonalityId');
+      
+      // Redirect to the login page
+      window.location.replace('auth.html');
+    }
   });
 };
 
