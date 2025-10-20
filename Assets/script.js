@@ -2976,7 +2976,7 @@ DOMElements.messageInput.addEventListener('keydown', (e) => {
     } else {
       localStorage.removeItem('chatSessionId');
       localStorage.removeItem('selectedPersonalityId');
-      window.location.replace('auth3.html');
+      window.location.replace('auth.html');
     }
   });
 };
