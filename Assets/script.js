@@ -1,4 +1,4 @@
-// --- ✅ [MODIFIED] FIREBASE IMPORTS & CONFIG ---
+// --- FIREBASE IMPORTS & CONFIG ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
   getFirestore, doc, getDoc, setDoc, collection, addDoc, onSnapshot,
@@ -21,13 +21,12 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app); // Firebase Auth instance
 
-// --- PDF.js WORKER SETUP (UNCHANGED) ---
+// --- PDF.js WORKER SETUP ---
 if (window.pdfjsLib) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
 }
 
-
-// --- ✅ [MODIFIED] DOM ELEMENTS (Added signOutBtn and Announcement Modals) ---
+// --- ✅ [MODIFIED] DOM ELEMENTS (Added Toast Container & Continue Button) ---
 const DOMElements = {
   body: document.body,
   sidebar: document.getElementById('sidebar'),
@@ -40,8 +39,17 @@ const DOMElements = {
   composer: document.getElementById('composer'),
   scrollToBottomBtn: document.getElementById('scroll-to-bottom'),
   newChatSidebarBtn: document.getElementById('new-chat-sidebar-btn'),
-  clearHistoryBtn: document.getElementById('clear-history-btn'),
-  signOutBtn: document.getElementById('sign-out-btn'), // New Button
+  
+  clearHistoryBtn: document.getElementById('clear-history-btn'), // ID is same, but moved
+  signOutBtn: document.getElementById('sign-out-btn'), // ID is same, but moved
+  
+  // ✅ [NEW] User Profile Elements
+  userAvatar: document.getElementById('user-avatar'),
+  userDisplayName: document.getElementById('user-display-name'),
+  userEmail: document.getElementById('user-email'),
+  userSettingsBtn: document.getElementById('user-settings-btn'),
+  userSettingsPopup: document.getElementById('user-settings-popup'),
+  themeText: document.getElementById('theme-text'),
   composerActionsBtn: document.getElementById('composer-actions-btn'),
   composerActionsPopup: document.getElementById('composer-actions-popup'),
   personalityList: document.getElementById('personality-list'),
@@ -49,8 +57,8 @@ const DOMElements = {
   messageInput: document.getElementById('message-input'),
   sendBtn: document.getElementById('send-btn'),
   statusRow: document.getElementById('status-row'),
-  themeToggle: document.getElementById('theme-toggle'),
-  themeIcon: document.getElementById('theme-icon'),
+  themeToggle: document.getElementById('theme-toggle'), // ID is same, but moved
+  themeIcon: document.getElementById('theme-icon-popup'), // ✅ [MODIFIED] ID updated to new popup icon
   apiStatusRow: document.getElementById('api-status-row'),
   personalityPreviewModal: document.getElementById('personality-preview-modal'),
   previewPersonalityName: document.getElementById('preview-personality-name'),
@@ -69,7 +77,6 @@ const DOMElements = {
   welcomeTourModal: document.getElementById('welcome-tour-modal'),
   startTourBtn: document.getElementById('start-tour-btn'),
   skipTourBtn: document.getElementById('skip-tour-btn'),
-  // ✨ [NEW] Announcement Elements
   announcementPopup: document.getElementById('announcement-popup'),
   announcementMedia: document.getElementById('announcement-media'),
   announcementTitle: document.getElementById('announcement-title'),
@@ -79,9 +86,75 @@ const DOMElements = {
   announcementDetailsModal: document.getElementById('announcement-details-modal'),
   announcementDetailsContent: document.getElementById('announcement-details-content'),
   announcementDetailsCloseBtn: document.getElementById('announcement-details-close-btn'),
+  exportModal: document.getElementById('export-modal'),
+  exportPdfBtn: document.getElementById('export-pdf-btn'),
+  exportTxtBtn: document.getElementById('export-txt-btn'),
+  exportCloseBtn: document.getElementById('export-close-btn'),
+  exportConfirmationModal: document.getElementById('export-confirmation-modal'),
+  exportConfirmationMessage: document.getElementById('export-confirmation-message'),
+  viewExportedFileBtn: document.getElementById('view-exported-file-btn'),
+  // ✨ [CORRECTED] Changed ID to be unique.
+  exportConfirmationContinueBtn: document.getElementById('export-continue-chat-btn'),
+  // ✨ [MODIFIED] No longer using the full-screen loading modal for PDFs
+  exportLoadingModal: document.getElementById('export-loading-modal'),
+  exportLoadingText: document.getElementById('export-loading-text'),
+  // ✨ [NEW] Toast notification container (requires HTML element)
+  toastContainer: document.getElementById('toast-container'), 
 };
 
-// --- APPLICATION STATE (UNCHANGED) ---
+// --- ✅ [NEW] CONSTANTS FOR LOADER & ICONS ---
+const LOADER_SVG_ICON = `<svg class="toast-loader-svg" viewBox="0 0 50 50"><circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle></svg>`;
+const PDF_LINK_LOADER_ICON = `<svg class="link-loader-svg" viewBox="0 0 50 50"><circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle></svg>`;
+const PDF_LINK_SUCCESS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" /></svg>`;
+const PDF_LINK_ERROR_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" /></svg>`;
+
+
+// --- ✅ [NEW] NON-BLOCKING TOAST NOTIFICATION SYSTEM ---
+/**
+ * Displays a non-blocking toast notification.
+ * @param {object} options - The options for the toast.
+ * @param {string} options.message - The message to display.
+ * @param {string} [options.icon=''] - The SVG icon string.
+ * @param {number} [options.duration=7000] - Duration in ms before auto-closing.
+ * @param {string} [options.type='info'] - Type of toast ('info', 'error', 'success').
+ */
+function showToastNotification({ message, icon = '', duration = 8000, type = 'info' }) {
+    if (!DOMElements.toastContainer) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast-notification ${type}`;
+    // Added entering animation
+    toast.classList.add('entering');
+
+    toast.innerHTML = `
+        ${icon ? `<div class="toast-icon">${icon}</div>` : ''}
+        <div class="toast-message">${message}</div>
+        <button class="toast-close-btn" title="Close">&times;</button>
+    `;
+
+    DOMElements.toastContainer.appendChild(toast);
+
+    const close = () => {
+        toast.classList.add('exiting');
+        // I Remove the element after the exit animation completes
+        toast.addEventListener('animationend', () => {
+            if (toast.parentElement) {
+                toast.remove();
+            }
+        });
+    };
+
+    toast.querySelector('.toast-close-btn').onclick = close;
+    setTimeout(close, duration);
+
+    // I Remove entering class after animation so it doesn't conflict with exiting
+    toast.addEventListener('animationend', () => {
+        toast.classList.remove('entering');
+    }, { once: true });
+}
+
+
+// --- ✅ [MODIFIED] APPLICATION STATE (Added messageIdToExport) ---
 let state = {
   userId: null,
   sessionId: null,
@@ -97,12 +170,17 @@ let state = {
   triggerUnsub: null,
   sessionWasPreviouslyBlocked: false,
   subtleNoteShown: false,
-  // ✨ [NEW] Announcement State
   announcementUnsub: null,
   currentAnnouncement: null,
+  elementToExport: null,
+  messageIdToExport: null, // ✨ [NEW] Store message ID for manual exports
+  lastExportedFile: null, 
 };
 
-// --- STATE FOR AUTOMATED API RETRY PROCESS (UNCHANGED) ---
+// --- ✨ [NEW] IN-SESSION CACHE FOR GENERATED FILES ---
+const exportedFileCache = new Map();
+
+// --- STATE FOR AUTOMATED API RETRY PROCESS ---
 let autoRetryState = {
     isActive: false,
     stopRequested: false,
@@ -111,22 +189,22 @@ let autoRetryState = {
 };
 let fetchController;
 
-// --- GLOBAL STATE FOR MULTIPLE FILE UPLOADS (UNCHANGED) ---
+// --- GLOBAL STATE FOR MULTIPLE FILE UPLOADS ---
 let selectedFiles = []; 
 
-// --- TTS (TEXT-TO-SPEECH) PLAYBACK STATE (UNCHANGED) ---
+// --- TTS (TEXT-TO-SPEECH) PLAYBACK STATE ---
 let currentAudio = null;
 let currentTtsButton = null;
 
-// --- botConfig with TTS properties (UNCHANGED) ---
+// --- botConfig with TTS properties ---
 let botConfig = {
   botName: "AI Bot",
   themeColor: "#4F46E5",
   allowFileUpload: false,
   apiKey: "",
   apiKeys: {},
-  ttsApiKey: null, // To store the ElevenLabs API key
-  ttsVoiceId: "JBFqnCBsd6RMkjVDRZzb", // Default voice ID
+  ttsApiKey: null,
+  ttsVoiceId: "JBFqnCBsd6RMkjVDRZzb",
   persona: "",
   botBubbleColor: "",
   userBubbleColor: "linear-gradient(135deg, #10b981, #059669)",
@@ -137,51 +215,261 @@ let botConfig = {
   promptSuggestions: []
 };
 
-// --- ✨ [NEW] ANNOUNCEMENT LOGIC ---
-/**
- * Closes all announcement-related modals and the overlay.
- */
-function closeAnnouncementModals() {
-    if (DOMElements.announcementPopup) DOMElements.announcementPopup.classList.add('hidden');
-    if (DOMElements.announcementDetailsModal) DOMElements.announcementDetailsModal.classList.add('hidden');
+// --- ✨ [MODIFIED] Full-screen loading modal (Now only for TXT) ---
+function showExportLoadingModal(message = 'Processing...') {
+    if (!DOMElements.exportLoadingModal) return;
+    DOMElements.exportLoadingText.textContent = message;
+    DOMElements.exportLoadingModal.classList.remove('hidden');
+    DOMElements.overlay.classList.add('show');
+}
+
+function hideExportLoadingModal() {
+    if (!DOMElements.exportLoadingModal) return;
+    DOMElements.exportLoadingModal.classList.add('hidden');
+    const isAnotherModalOpen = !DOMElements.exportConfirmationModal.classList.contains('hidden');
+    if (!isAnotherModalOpen) {
+      DOMElements.overlay.classList.remove('show');
+    }
+}
+
+// --- EXPORT CONFIRMATION LOGIC ---
+function showExportConfirmationModal(fileType, fileUrl) {
+    if (!DOMElements.exportConfirmationModal) return;
+
+    state.lastExportedFile = { type: fileType, url: fileUrl };
+    DOMElements.exportConfirmationMessage.textContent = `${fileType} file has been successfully created.`;
+    DOMElements.exportConfirmationModal.classList.remove('hidden');
+    DOMElements.overlay.classList.add('show');
+}
+
+function hideExportConfirmationModal() {
+    if (!DOMElements.exportConfirmationModal) return;
     
-    // Only hide the overlay if no other modals are active
+    // ✨ [REMOVED] Blob URLs are no longer stored here long-term
+    // Cloudinary URLs don't need to be revoked.
+    state.lastExportedFile = null;
+    DOMElements.exportConfirmationModal.classList.add('hidden');
+
     const isAnotherModalOpen = !DOMElements.personalityPreviewModal.classList.contains('hidden') ||
                                !document.getElementById('continuation-modal').classList.contains('hidden') ||
-                               !DOMElements.welcomeTourModal.classList.contains('hidden');
+                               !DOMElements.welcomeTourModal.classList.contains('hidden') ||
+                               !DOMElements.announcementPopup.classList.contains('hidden') ||
+                               !DOMElements.exportModal.classList.contains('hidden');
     if (!isAnotherModalOpen) {
         DOMElements.overlay.classList.remove('show');
     }
 }
 
-/**
- * Displays the modal with the full announcement details.
- * @param {object} announcement - The announcement data object from Firestore.
- */
-function showAnnouncementDetails(announcement) {
-    if (!DOMElements.announcementDetailsModal || !announcement) return;
-    
-    // Use marked.js to parse Markdown content for rich text
-    DOMElements.announcementDetailsContent.innerHTML = marked.parse(announcement.fullContent || 'No details available.');
-    DOMElements.announcementDetailsModal.classList.remove('hidden');
-    // Ensure the main popup is hidden to avoid overlap
-    if (DOMElements.announcementPopup) DOMElements.announcementPopup.classList.add('hidden');
+
+// --- ✅ [MODIFIED] EXPORT/DOWNLOAD LOGIC ---
+function showExportModal(contentElement, messageId = null) {
+    state.elementToExport = contentElement;
+    state.messageIdToExport = messageId; // ✨ [NEW] Store message ID
+    DOMElements.exportModal.classList.remove('hidden');
     DOMElements.overlay.classList.add('show');
 }
 
+function hideExportModal() {
+    state.elementToExport = null;
+    state.messageIdToExport = null; // ✨ [NEW] Clear message ID
+    DOMElements.exportModal.classList.add('hidden');
+    const isAnotherModalOpen = !DOMElements.personalityPreviewModal.classList.contains('hidden') ||
+                               !document.getElementById('continuation-modal').classList.contains('hidden') ||
+                               !DOMElements.welcomeTourModal.classList.contains('hidden') ||
+                               !DOMElements.announcementPopup.classList.contains('hidden');
+    if (!isAnotherModalOpen) {
+        DOMElements.overlay.classList.remove('show');
+    }
+}
+
+// TXT export remains largely the same as it's fast.
+async function exportAsTxt(contentElement, triggerDownload = true) {
+    if (!contentElement) return null;
+    showExportLoadingModal('Generating TXT...'); // Uses fast modal
+    try {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const textContent = contentElement.innerText || contentElement.textContent;
+        const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        
+        if (triggerDownload) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'chat-export.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url); // Clean up blob URL after download
+        }
+        
+        hideExportModal();
+        return url; 
+    } catch (error) {
+        console.error("TXT export process failed:", error);
+        alert("Sorry, there was an error creating the text file.");
+        return null;
+    } finally {
+        hideExportLoadingModal();
+    }
+}
+
+
+// this is for my web search ability
+
 /**
- * Displays the initial announcement pop-up.
- * @param {object} announcement - The announcement data object from Firestore.
+ * ✅ [MODIFIED] It now Performs a web search using the Serper.dev API.
+ * @param {string} query The search query.
+ * @param {string} apiKey The Serper API key.
+ * @returns {Promise<string>} A formatted string of search results or an error message.
  */
+async function performWebSearch(query, apiKey) {
+    console.log(`Performing web search for: "${query}"`);
+    
+    if (!apiKey) {
+        console.error("Web search failed: Serper API key is missing.");
+        return `[INTERNAL_ERROR] The web search failed because the API key is not configured.`;
+    }
+    
+    try {
+        const response = await fetch('https://google.serper.dev/search', {
+            method: 'POST',
+            headers: {
+                'X-API-KEY': apiKey,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ q: query })
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error("Serper API Error Response:", errorBody);
+            throw new Error(`Serper API responded with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.organic || data.organic.length === 0) {
+            return "No good search results found.";
+        }
+        
+        // Format the results cleanly for chaka AI model 
+        let formattedResults = "Here are the web search results:\n\n";
+        data.organic.slice(0, 5).forEach((result, index) => {
+            formattedResults += `[Result ${index + 1}]\n`;
+            formattedResults += `Title: ${result.title}\n`;
+            formattedResults += `Link: ${result.link}\n`;
+            formattedResults += `Snippet: ${result.snippet}\n\n`;
+        });
+        
+        return formattedResults;
+
+    } catch (error) {
+        console.error("Web search failed:", error);
+        return `[INTERNAL_ERROR] The web search failed with the error: ${error.message}`;
+    }
+}
+
+
+
+
+
+/**
+ * ✅ [UPDATED] IT Generates a PDF, uploads it to Cloudinary for persistence, caches it, and returns the URL.
+ * @param {HTMLElement} contentElement The element to export.
+ * @param {string|null} messageId The ID of the message for caching purposes.
+ * @returns {Promise<string>} The permanent Cloudinary URL of the generated PDF.
+ */
+async function exportAsPdf(contentElement, messageId = null) {
+    if (!contentElement) {
+        throw new Error("Content element for PDF export not found.");
+    }
+
+    try {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const { jsPDF } = window.jspdf;
+        const theme = DOMElements.body.dataset.theme;
+        const originalBg = contentElement.parentElement.style.backgroundColor;
+        const originalColor = contentElement.style.color;
+        
+        if (theme === 'dark') {
+            contentElement.parentElement.style.backgroundColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-dark');
+            contentElement.style.color = getComputedStyle(document.documentElement).getPropertyValue('--text-primary-dark');
+        } else {
+            contentElement.parentElement.style.backgroundColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-light');
+            contentElement.style.color = getComputedStyle(document.documentElement).getPropertyValue('--text-primary-light');
+        }
+        
+        const canvas = await html2canvas(contentElement, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: (theme === 'dark' ? '#303030' : '#faf9f7'),
+            onclone: (doc) => {
+                doc.querySelectorAll('.message-content a').forEach(link => {
+                    link.style.color = '#4f46e5'; 
+                });
+            }
+        });
+
+        contentElement.parentElement.style.backgroundColor = originalBg;
+        contentElement.style.color = originalColor;
+
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF({
+            orientation: 'p',
+            unit: 'px',
+            format: [canvas.width, canvas.height]
+        });
+
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        
+        const blob = pdf.output('blob');
+        const pdfFile = new File([blob], `chat-export-${Date.now()}.pdf`, { type: 'application/pdf' });
+
+        // Upload to Cloudinary to get a permanent URL, specifying 'raw' for non-media files.
+        const url = await uploadFileToCloudinary(pdfFile, 'raw');
+        
+        // Cache the permanent URL against the message ID.
+        if (messageId) {
+            exportedFileCache.set(messageId, url);
+        }
+        
+        return url; // Return the permanent URL on success
+        
+    } catch (err) {
+        console.error("PDF export process failed:", err);
+        throw err;
+    }
+}
+
+
+// --- ANNOUNCEMENT LOGIC ---
+function closeAnnouncementModals() {
+    if (DOMElements.announcementPopup) DOMElements.announcementPopup.classList.add('hidden');
+    if (DOMElements.announcementDetailsModal) DOMElements.announcementDetailsModal.classList.add('hidden');
+    
+    const isAnotherModalOpen = !DOMElements.personalityPreviewModal.classList.contains('hidden') ||
+                               !document.getElementById('continuation-modal').classList.contains('hidden') ||
+                               !DOMElements.exportModal.classList.contains('hidden') || 
+                               !DOMElements.exportConfirmationModal.classList.contains('hidden') || 
+                               !DOMElements.welcomeTourModal.classList.contains('hidden');
+    if (!isAnotherModalOpen) {
+        DOMElements.overlay.classList.remove('show');
+    }
+}
+function showAnnouncementDetails(announcement) {
+    if (!DOMElements.announcementDetailsModal || !announcement) return;
+    DOMElements.announcementDetailsContent.innerHTML = marked.parse(announcement.fullContent || 'No details available.');
+    DOMElements.announcementDetailsModal.classList.remove('hidden');
+    if (DOMElements.announcementPopup) DOMElements.announcementPopup.classList.add('hidden');
+    DOMElements.overlay.classList.add('show');
+}
 function showAnnouncementPopup(announcement) {
     if (!DOMElements.announcementPopup || !announcement) return;
     state.currentAnnouncement = announcement;
 
-    // Set title and description
     DOMElements.announcementTitle.textContent = announcement.title || 'Announcement';
     DOMElements.announcementDescription.textContent = announcement.description || '';
 
-    // Clear previous media and create new element
     DOMElements.announcementMedia.innerHTML = '';
     let mediaElement;
     if (announcement.mediaType === 'video' && announcement.mediaUrl) {
@@ -203,51 +491,31 @@ function showAnnouncementPopup(announcement) {
     } else {
         DOMElements.announcementMedia.classList.add('hidden');
     }
-
-    // Show the popup and overlay
     DOMElements.announcementPopup.classList.remove('hidden');
     DOMElements.overlay.classList.add('show');
 }
-
-/**
- * Processes the announcement data from Firestore and decides whether to show the popup.
- * @param {object|null} announcement - The announcement data object from Firestore.
- */
 function handleAnnouncementData(announcement) {
-    // Condition 1: No active announcement exists
     if (!announcement || !announcement.isActive || !announcement.id) {
         return;
     }
-
-    // Condition 2: Check if it has been shown in the current browser session
     const shownThisSession = sessionStorage.getItem('announcementShownThisSession') === announcement.id;
     if (shownThisSession) {
         return;
     }
-
-    // Condition 3: Check the persistent view count (max 3 times)
     const viewCountKey = `announcement_views_${announcement.id}`;
     let viewCount = parseInt(localStorage.getItem(viewCountKey) || '0');
     if (viewCount >= 3) {
         return;
     }
-
-    // If all conditions pass, show the announcement after a delay
     setTimeout(() => {
         showAnnouncementPopup(announcement);
-        
-        // Update tracking
         viewCount++;
         localStorage.setItem(viewCountKey, viewCount.toString());
         sessionStorage.setItem('announcementShownThisSession', announcement.id);
-    }, 5000); // 5-second delay
+    }, 5000);
 }
-
-/**
- * Initializes the real-time listener for the latest announcement.
- */
 function initAnnouncementListener() {
-    if (state.announcementUnsub) state.announcementUnsub(); // Unsubscribe from any previous listener
+    if (state.announcementUnsub) state.announcementUnsub();
 
     const announcementRef = doc(db, 'announcements', 'latest');
     state.announcementUnsub = onSnapshot(announcementRef, (docSnap) => {
@@ -260,7 +528,7 @@ function initAnnouncementListener() {
 }
 
 
-// --- API KEY MANAGEMENT (UNCHANGED) ---
+// --- API KEY MANAGEMENT ---
 const apiKeyManager = {
     keys: [],
     currentIndex: 0,
@@ -309,7 +577,7 @@ const apiKeyManager = {
     }
 };
 
-// --- LIVE STATUS REPORTING (UNCHANGED) ---
+// --- LIVE STATUS REPORTING ---
 async function updateLiveStatus(keyId) {
     if (!db) return;
     try {
@@ -333,7 +601,7 @@ async function reportKeyFailure(keyId) {
     } catch (e) { console.warn("Could not report key failure", e); }
 }
 
-// --- UTILITIES (UNCHANGED) ---
+// --- UTILITIES ---
 const sanitize = (s) => typeof s === 'string' ? s.trim() : '';
 const autosize = (el) => { el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 150)}px`; };
 const parseBool = (v) => v === true || v === 'true';
@@ -385,7 +653,7 @@ const parsePdfFile = (file) => {
 };
 
 
-// --- API STATUS UI HELPER (UNCHANGED) ---
+// --- API STATUS UI HELPER ---
 let apiStatusTimer;
 function showApiStatus(message, duration = 4000) {
     if (!DOMElements.apiStatusRow) return;
@@ -399,11 +667,12 @@ function showApiStatus(message, duration = 4000) {
     }
 }
 
-// --- UPLOAD USER FILE TO CLOUDINARY (UNCHANGED) ---
-async function uploadFileToCloudinary(file) {
+// --- ✅ [MODIFIED] UPLOAD GENERIC FILE TO CLOUDINARY ---
+async function uploadFileToCloudinary(file, resourceType = 'auto') {
     const CLOUDINARY_CLOUD_NAME = "dvjs45kft";
     const CLOUDINARY_UPLOAD_PRESET = "vevapvkv";
-    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+    // Use the generic 'upload' endpoint which auto-detects resource type
+    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`;
 
     const formData = new FormData();
     formData.append('file', file);
@@ -417,7 +686,7 @@ async function uploadFileToCloudinary(file) {
 
         if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(errorData.error.message || 'Failed to upload the image to Cloudinary.');
+            throw new Error(errorData.error.message || 'Failed to upload to Cloudinary.');
         }
 
         const data = await response.json();
@@ -429,7 +698,7 @@ async function uploadFileToCloudinary(file) {
 }
 
 
-// --- FILE INPUT MANAGEMENT FUNCTIONS (UNCHANGED) ---
+// --- FILE INPUT MANAGEMENT FUNCTIONS ---
 function checkSendButtonState() {
     if (autoRetryState.isActive) {
         toggleSendButtonState('stop', false);
@@ -462,7 +731,6 @@ function updateFilePreviewStatus(fileId, status, data = {}) {
     const fileElement = document.getElementById(`file-preview-${fileId}`);
     if (!fileElement) return;
 
-    // Clean up previous statuses
     fileElement.classList.remove('uploading', 'completed', 'error');
     const existingOverlay = fileElement.querySelector('.file-preview-overlay');
     if (existingOverlay) existingOverlay.remove();
@@ -520,17 +788,25 @@ function resetFileInput() {
     checkSendButtonState();
 }
 
-// --- THEME & UI HELPERS (UNCHANGED) ---
+// --- THEME & UI HELPERS  ---
 const applyTheme = (theme) => {
   DOMElements.body.dataset.theme = theme;
   localStorage.setItem('chatTheme', theme);
-const isDark = theme === 'dark';
-  DOMElements.themeIcon.innerHTML = isDark
-    ?
-`<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" /></svg>`
-    : `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" /></svg>`;
+  const isDark = theme === 'dark';
+  
+  // ✅ [MODIFIED] Update new icon container and text label
+  if (DOMElements.themeIcon) {
+    DOMElements.themeIcon.innerHTML = isDark
+      ? `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" /></svg>`
+      : `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" /></svg>`;
+  }
+  if (DOMElements.themeText) {
+    DOMElements.themeText.textContent = isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+  }
 };
+
 DOMElements.themeToggle.addEventListener('click', () => { state.currentTheme = state.currentTheme === 'light' ? 'dark' : 'light'; applyTheme(state.currentTheme); });
+
 const showTypingIndicator = (show) => {
   let indicator = DOMElements.chatMessages.querySelector('.typing-indicator');
 if (show && !indicator) {
@@ -556,7 +832,7 @@ const addCopyButtons = () => {
   });
 };
 
-// --- applyConfigToUI (UNCHANGED) ---
+// --- applyConfigToUI ---
 const applyConfigToUI = () => {
   DOMElements.chatTitle.textContent = botConfig.botName || 'AI Bot';
   DOMElements.botAvatar.src = botConfig.profileImage || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
@@ -567,11 +843,11 @@ const applyConfigToUI = () => {
   DOMElements.sendBtn.disabled = false;
 };
 
-// --- TEXT-TO-SPEECH (TTS) FUNCTIONS (UNCHANGED) ---
+// --- TEXT-TO-SPEECH (TTS) FUNCTIONS ---
 function stopCurrentAudio() {
     if (currentAudio) {
         currentAudio.pause();
-        currentAudio.src = ''; // Release memory
+        currentAudio.src = ''; 
         URL.revokeObjectURL(currentAudio.src);
         currentAudio = null;
     }
@@ -583,8 +859,8 @@ function stopCurrentAudio() {
 
 async function playTextAsSpeech(text, buttonElement) {
     if (!botConfig.ttsApiKey) {
-        console.error("ElevenLabs API key is not configured.");
-        alert("Text-to-speech functionality is not set up by the administrator.");
+        console.error("API key is not configured.");
+        alert("Text-to-speech functionality is not set up by my creator.");
         return;
     }
 
@@ -671,7 +947,7 @@ async function playTextAsSpeech(text, buttonElement) {
 }
 
 
-// --- HELPER FUNCTIONS FOR CHAT CONTINUATION (UNCHANGED) ---
+// --- HELPER FUNCTIONS FOR CHAT CONTINUATION ---
 async function findLastSessionForPersonality(personalityId) {
     if (!state.userId || !personalityId) return null;
     try {
@@ -726,7 +1002,7 @@ function showContinuationPrompt(personalityId, lastSessionId) {
     cancelBtn.addEventListener('click', cancelHandler, { once: true });
 }
 
-// --- PERSONALITY VIDEO PREVIEW LOGIC (UNCHANGED) ---
+// --- PERSONALITY VIDEO PREVIEW LOGIC ---
 async function showPersonalityPreview(personality) {
     DOMElements.previewPersonalityName.textContent = `Preview: ${personality.name}`;
     DOMElements.previewVideo.src = personality.videoUrl;
@@ -753,7 +1029,7 @@ async function showPersonalityPreview(personality) {
     });
 }
 
-// --- Function to mark a personality as seen by the user (UNCHANGED) ---
+// --- Function to mark a personality as seen by the user ---
 async function markPersonalityAsSeen(personalityId) {
     if (!state.userId || !personalityId) return;
     try {
@@ -772,7 +1048,7 @@ async function markPersonalityAsSeen(personalityId) {
     }
 }
 
-// --- PERSONALITY SELECTION LOGIC (UNCHANGED) ---
+// --- PERSONALITY SELECTION LOGIC ---
 function subscribeAndDisplayPersonalities() {
     if (state.personalitiesUnsub) state.personalitiesUnsub();
     const personalitiesCol = collection(db, 'personalities');
@@ -896,7 +1172,7 @@ function subscribeAndDisplayPersonalities() {
 }
 
 
-// --- CORE LOGIC & SESSION MANAGEMENT (UNCHANGED) ---
+// --- CORE LOGIC & SESSION MANAGEMENT ---
 function findMatchingTrigger(message) {
   if (!message) return null;
   const txt = String(message);
@@ -1012,10 +1288,10 @@ async function handleUserMessage(text) {
   return out;
 }
 
-// --- loadConfigLive (UNCHANGED) ---
+// --- ✅ [CORRECTED] loadConfigLive ---
 function loadConfigLive() {
   if (state.configPromise) return state.configPromise;
-state.configPromise = (async () => {
+  state.configPromise = (async () => {
     const cfgRef = doc(db, 'config', 'global');
     const applyCfg = (data) => {
       Object.assign(botConfig, data || {});
@@ -1060,12 +1336,13 @@ state.configPromise = (async () => {
     }, err => {
       console.error('config snapshot err', err);
     });
+    // ✅ NEWLY FIXED: IT NOW returns the actual config object, not the promise itself.
     return botConfig;
   })();
   return state.configPromise;
 }
 
-// --- subscribeSessions (UNCHANGED) ---
+// --- subscribeSessions ---
 function subscribeSessions() {
   if (state.sessionsUnsub) state.sessionsUnsub();
   DOMElements.sessionList.innerHTML = Array(5).fill('<div class="skeleton"></div>').join('');
@@ -1092,7 +1369,7 @@ function subscribeSessions() {
   });
 }
 
-// --- subscribeMessages (UNCHANGED) ---
+// --- ✅ [MODIFIED] subscribeMessages ---
 function subscribeMessages() {
   if (!state.sessionId) return;
   if (state.messagesUnsub) state.messagesUnsub();
@@ -1203,6 +1480,10 @@ function subscribeMessages() {
       
       const hasTextContent = (msg.text || '').trim().length > 0;
       if (msg.sender === 'bot' && hasTextContent && !imageRegex.test(msg.text) && !placeholderRegex.test(msg.text)) {
+          
+        const buttonContainer = document.createElement('div');
+        buttonContainer.className = 'message-actions-container';
+
         const ttsBtn = document.createElement('button');
         ttsBtn.className = 'tts-btn';
         ttsBtn.title = 'Listen to message';
@@ -1227,7 +1508,32 @@ function subscribeMessages() {
             }, 2000);
         };
         el.appendChild(copyBtn);
+        
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'download-btn';
+        downloadBtn.title = 'Download message';
+        downloadBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 15.586l-4.293-4.293-1.414 1.414L12 18.414l5.707-5.707-1.414-1.414L12 15.586z"/><path d="M12 4a.999.999 0 00-1 1v10.586l-1.707-1.707-1.414 1.414L12 18.414l4.121-4.121-1.414-1.414L13 15.586V5a.999.999 0 00-1-1z"/></svg>`;
+        downloadBtn.onclick = () => {
+          const messageElement = downloadBtn.closest('.message[data-message-id]');
+          if (messageElement) {
+              showExportModal(messageElement.querySelector('.message-content'), messageElement.dataset.messageId);
+          }
+        };
+        el.appendChild(downloadBtn);
       }
+      
+      // ✨ [NEW LOGIC] Check cache to set initial state of PDF download links after rendering
+      const pdfLinksInContent = content.querySelectorAll('a[data-export-pdf-id]');
+      pdfLinksInContent.forEach(pdfLink => {
+          const linkMessageId = pdfLink.getAttribute('data-export-pdf-id');
+          if (exportedFileCache.has(linkMessageId)) {
+              const url = exportedFileCache.get(linkMessageId);
+              pdfLink.dataset.status = 'completed';
+              pdfLink.innerHTML = `${PDF_LINK_SUCCESS_ICON} Open PDF`;
+              pdfLink.href = url;
+              pdfLink.target = '_blank';
+          }
+      });
 
       if(msg.sender==='user'&&botConfig.userBubbleColor) el.style.background = botConfig.userBubbleColor;
       if(msg.sender==='bot'&&botConfig.botBubbleColor) el.style.background = botConfig.botBubbleColor;
@@ -1235,6 +1541,13 @@ function subscribeMessages() {
     });
     container.querySelectorAll('pre code').forEach(block => { try { hljs.highlightElement(block); } catch(e){} });
     addCopyButtons();
+    
+    container.querySelectorAll('.message-content a').forEach(a => {
+        if (!a.hasAttribute('data-export-pdf-id')) {
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+        }
+    });
     
     if (window.MathJax) {
         MathJax.typesetPromise([container]).catch((err) => console.error('MathJax final typeset error:', err));
@@ -1281,18 +1594,24 @@ async function trackUserLocationAndDevice() {
     }
 }
 
-// --- ✅ [MODIFIED] ensureUser to use authenticated user object ---
+
 async function ensureUser(authUser){
+  // ✅ [MODIFIED] Populate user profile UI
+  const placeholderAvatar = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  if (DOMElements.userAvatar) DOMElements.userAvatar.src = authUser.photoURL || placeholderAvatar;
+  if (DOMElements.userDisplayName) DOMElements.userDisplayName.textContent = authUser.displayName || 'New User';
+  if (DOMElements.userEmail) DOMElements.userEmail.textContent = authUser.email;
+  // --- End of UI Population ---
+
   const ref = doc(db, 'users', authUser.uid);
   const s = await getDoc(ref);
   const trackingData = await trackUserLocationAndDevice();
 
   if (!s.exists()) {
-    // Create new user document in Firestore
     const initialData = {
       email: authUser.email,
       displayName: authUser.displayName || 'New User',
-      photoURL: authUser.photoURL,
+      photoURL: authUser.photoURL || null,
       blocked: false, 
       createdAt: serverTimestamp(), 
       lastSeen: serverTimestamp(),
@@ -1301,15 +1620,18 @@ async function ensureUser(authUser){
     };
     await setDoc(ref, initialData);
   } else {
-    // Update existing user document
     const updateData = {
       lastSeen: serverTimestamp(), 
       activityStatus: 'Active', 
+      // Update photoURL and displayName if they've changed since last login
+      photoURL: authUser.photoURL || s.data().photoURL || null,
+      displayName: authUser.displayName || s.data().displayName || 'New User',
       ...(trackingData || {})
     };
     await updateDoc(ref, updateData).catch(() => {});
   }
 }
+
 
 async function ensureSessionMetadataOnFirstMsg(sid, msg){
   const ref=doc(db,'sessions',state.userId,'items',sid);
@@ -1369,7 +1691,7 @@ async function isUserOrSessionBlocked(){
   return { blocked: false };
 }
 
-// --- toggleSendButtonState (UNCHANGED) ---
+// --- toggleSendButtonState ---
 function toggleSendButtonState(buttonState, isDisabled = false) {
     const btn = DOMElements.sendBtn;
     const icons = {
@@ -1401,7 +1723,7 @@ function toggleSendButtonState(buttonState, isDisabled = false) {
 }
 
 
-// --- cancellableWait (UNCHANGED) ---
+// --- cancellableWait ---
 function cancellableWait(duration, countdownMessage = '') {
     return new Promise(resolve => {
         let timeLeft = Math.ceil(duration / 1000);
@@ -1432,7 +1754,7 @@ function cancellableWait(duration, countdownMessage = '') {
     });
 }
 
-// --- stopApiRequestLoop (UNCHANGED) ---
+// --- stopApiRequestLoop ---
 function stopApiRequestLoop() {
     if (autoRetryState.isActive) {
         autoRetryState.stopRequested = true;
@@ -1443,7 +1765,7 @@ function stopApiRequestLoop() {
     }
 }
 
-// --- makeApiRequest (UNCHANGED) ---
+// --- makeApiRequest ---
 async function makeApiRequest(requestBody, apiKey, abortSignal) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(endpoint, {
@@ -1541,13 +1863,13 @@ async function makeApiRequest(requestBody, apiKey, abortSignal) {
     return accumulatedBotReply;
 }
 
-// --- cleanupAfterLoop (UNCHANGED) ---
+// --- cleanupAfterLoop ---
 function cleanupAfterLoop() {
     autoRetryState.isActive = false;
     checkSendButtonState();
 }
 
-// --- generateAndReplaceImage (UNCHANGED) ---
+// --- generateAndReplaceImage ---
 async function generateAndReplaceImage(prompt, messageId, originalText) {
     const messageDocRef = doc(db, 'chats', state.userId, state.sessionId, messageId);
     try {
@@ -1569,7 +1891,7 @@ async function generateAndReplaceImage(prompt, messageId, originalText) {
 }
 
 
-// --- executeApiRequestLoop (UNCHANGED) ---
+// new updated executeApiRequestLoop FUNCTION
 async function executeApiRequestLoop() {
     autoRetryState.isActive = true;
     autoRetryState.stopRequested = false;
@@ -1626,19 +1948,108 @@ async function executeApiRequestLoop() {
     
     if (success) {
         apiKeyManager.recordUsage(apiKeyManager.getCurrentKey().id);
-        botMessageGroup.remove();
+        botMessageGroup.remove(); // Removed the temporary streaming message
+
+        // --- ✅ [MODIFIED] LOGIC TO HANDLE TOOL USE (SEARCH, IMAGES, EXPORTS) ---
         
+        // This regex now makes the quotes optional, fixing the issue.
+        const searchCommandRegex = /\[search:\s*"?([\s\S]+?)"?\]/i; 
         const imageCommandRegex = /(\[|\()\s*"?generate(?:_|\s|;)?image"?'?\s*[:\s]+"?([\s\S]*?)"?\s*(\]|\))/is;
-        const match = finalAccumulatedReply.match(imageCommandRegex);
-        
-        if (match && match[2]) {
-            let prompt = match[2].trim();
+        const exportCommandRegex = /\[export_as:\s*"?(pdf|txt)"?\s*\]/i;
+
+        const searchMatch = finalAccumulatedReply.match(searchCommandRegex);
+        const imageMatch = finalAccumulatedReply.match(imageCommandRegex);
+        const exportMatch = finalAccumulatedReply.match(exportCommandRegex);
+
+        if (searchMatch && searchMatch[1]) {
+            // --- 1. HANDLE WEB SEARCH REQUEST ---
+            const searchQuery = searchMatch[1].trim(); // Trim any extra whitespace
+            
+            // Find the enabled Serper API key from the config
+            const serperApiKeyEntry = Object.values(botConfig.apiKeys || {}).find(k => k.type === 'search' && k.enabled !== false);
+            const serperApiKey = serperApiKeyEntry ? serperApiKeyEntry.key : null;
+
+            if (!serperApiKey) {
+                const errorText = "My apologies, my web search tool is not configured. An administrator needs to add a Serper.dev API key in the admin panel.";
+                await addDoc(collection(db, 'chats', state.userId, state.sessionId), { 
+                    text: errorText, sender: 'bot', createdAt: new Date() 
+                });
+                cleanupAfterLoop();
+                return; // Stop processing
+            }
+
+            showApiStatus(`🔎 Searching the web for "${searchQuery}"...`, -1);
+            const searchResults = await performWebSearch(searchQuery, serperApiKey);
+            showApiStatus('🧠 Thinking with new information...', -1);
+
+            // I  Added the search results to the conversation history for the next API call
+            const searchResultsForHistory = {
+                role: 'user', // pretend it's from the user to provide context
+                parts: [{ text: `[SEARCH_RESULTS]\n${searchResults}` }]
+            };
+            
+            // Re-run the API loop with the added context
+            autoRetryState.requestPayload.contents.push(searchResultsForHistory);
+            
+            // Re-add a temporary bot message for the final streaming response
+            const finalBotMessageGroup = document.createElement('div');
+            finalBotMessageGroup.className = 'message-group bot streaming';
+            const finalBotMessageEl = document.createElement('div');
+            finalBotMessageEl.className = 'message bot';
+            if(botConfig.botBubbleColor) finalBotMessageEl.style.background = botConfig.botBubbleColor;
+            const finalBotMessageContent = document.createElement('div');
+            finalBotMessageContent.className = 'message-content';
+            finalBotMessageContent.innerHTML = '<span class="typing-cursor"></span>';
+            finalBotMessageEl.appendChild(finalBotMessageContent);
+            finalBotMessageGroup.appendChild(finalBotMessageEl);
+            DOMElements.chatMessages.appendChild(finalBotMessageGroup);
+            scrollToBottom('smooth');
+
+            autoRetryState.botMessageElements = {
+                botMessageGroup: finalBotMessageGroup,
+                botMessageEl: finalBotMessageEl,
+                botMessageContent: finalBotMessageContent
+            };
+            
+            // This is a recursive call to get the final answer
+            await executeApiRequestLoop(); 
+            return; // IMPORTANT
+
+        } else if (exportMatch) {
+            // --- 2. HANDLE EXPORT REQUEST ---
+            const fileType = exportMatch[1].toLowerCase();
+            const contentToExport = finalAccumulatedReply.replace(exportCommandRegex, '').trim();
+
+            const messageDocRef = await addDoc(collection(db, 'chats', state.userId, state.sessionId), { 
+                text: contentToExport, 
+                sender: 'bot', 
+                createdAt: new Date() 
+            });
+            const newMessageId = messageDocRef.id;
+
+            const fileTypeText = fileType.toUpperCase();
+            let downloadLinkMarkdown = '';
+            
+            if (fileType === 'txt') {
+                const dataUri = `data:text/plain;charset=utf-8,${encodeURIComponent(contentToExport)}`;
+                downloadLinkMarkdown = `\n\n<a href="${dataUri}" class="download-link" download="chat-export.txt"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15.586l-4.293-4.293-1.414 1.414L12 18.414l5.707-5.707-1.414-1.414L12 15.586z"/><path d="M12 4a.999.999 0 00-1 1v10.586l-1.707-1.707-1.414 1.414L12 18.414l4.121-4.121-1.414-1.414L13 15.586V5a.999.999 0 00-1-1z"/></svg>Download ${fileTypeText}</a>`;
+            } else if (fileType === 'pdf') {
+                downloadLinkMarkdown = `\n\n<a href="javascript:void(0);" class="download-link download-link-pdf" data-export-pdf-id="${newMessageId}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15.586l-4.293-4.293-1.414 1.414L12 18.414l5.707-5.707-1.414-1.414L12 15.586z"/><path d="M12 4a.999.999 0 00-1 1v10.586l-1.707-1.707-1.414 1.414L12 18.414l4.121-4.121-1.414-1.414L13 15.586V5a.999.999 0 00-1-1z"/></svg>Download ${fileTypeText}</a>`;
+            }
+
+            await updateDoc(messageDocRef, {
+                text: contentToExport + downloadLinkMarkdown
+            });
+
+        } else if (imageMatch && imageMatch[2]) {
+            // --- 3. HANDLE IMAGE REQUEST  ---
+            let prompt = imageMatch[2].trim();
             if ((prompt.startsWith('"') && prompt.endsWith('"')) || (prompt.startsWith("'") && prompt.endsWith("'"))) {
                 prompt = prompt.substring(1, prompt.length - 1);
             }
 
             const placeholder = `[IMAGE_PLACEHOLDER_PROMPT:"${prompt}"]`;
-            const combinedText = finalAccumulatedReply.replace(match[0], placeholder).trim();
+            const combinedText = finalAccumulatedReply.replace(imageMatch[0], placeholder).trim();
 
             const messageDocRef = await addDoc(collection(db, 'chats', state.userId, state.sessionId), {
                 text: combinedText, sender: 'bot', createdAt: new Date()
@@ -1647,6 +2058,7 @@ async function executeApiRequestLoop() {
             generateAndReplaceImage(prompt, messageDocRef.id, combinedText);
 
         } else {
+            // --- 4. HANDLE NORMAL RESPONSE ---
             await addDoc(collection(db, 'chats', state.userId, state.sessionId), { 
                 text: finalAccumulatedReply, sender: 'bot', createdAt: new Date() 
             });
@@ -1681,7 +2093,10 @@ async function executeApiRequestLoop() {
 }
 
 
-// --- sendMessage (UNCHANGED) ---
+
+
+
+// --- sendMessage ---
 async function sendMessage() {
     const text = sanitize(DOMElements.messageInput.value);
 
@@ -1788,17 +2203,25 @@ async function sendMessage() {
         }
         if (!activePersonaInstructions) activePersonaInstructions = botConfig.persona || '';
 
+                      // newly updated system instructions 
         const systemInstruction = {
             role: 'user',
             parts: [{
                 text: `${activePersonaInstructions}\n\n---**SYSTEM INSTRUCTIONS:**\n` +
-                "1.  **Formatting:** ALWAYS use Markdown for formatting like headings, bold text, and lists. To avoid large gaps, use only a single blank line between paragraphs.\n" +
-                "2.  **Equations:** To display math, use LaTeX. For inline math, use single dollar signs (e.g., `$E=mc^2$`). For block-level equations, use double dollar signs (e.g., `$$x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$`).\n" +
-                "3.  **Image Generation:** To generate an image, your response MUST start with the command `[generate_image: \"A detailed description\"]` on the very first line. You MUST then provide a follow-up message on the next line. For example:\n" +
-                "`[generate_image: \"A photo of a red sports car\"]`\n" +
-                "Here is the image of the red sports car you requested."
+                "1.  **Formatting:** ALWAYS use Markdown for formatting. For links, use standard Markdown `[Link Text](URL)`.\n" +
+                "2.  **Equations:** Use LaTeX for math. Inline: `$E=mc^2$`. Block: `$$...$$`.\n" +
+                "3.  **Image Generation:** To generate an image, response MUST start with `[generate_image: \"A detailed description\"]` on the very first line, followed by a message on the next.\n" +
+                "4.  **Exporting Content:** If the user asks to download or export the content you are about to generate, you MUST respond with two parts on separate lines: first, the content itself, and second, the command `[export_as: \"pdf\"]` or `[export_as: \"txt\"]`. The command MUST be on the last line.\n" +
+                // --- ✅ [MODIFIED] INSTRUCTIONS FOR WEB SEARCH ---
+                "5.  **Web Search is Your Tool for Facts:** You have a web search tool. If the user asks for **any** factual information you don't know, especially anything that is recent or time-sensitive, you **MUST** use it. This includes news, weather, real-time data, current exchange rates, or **the current date/time**. Your entire response must be ONLY the command: `[search: your concise search query here]`. Do not try to answer from your own knowledge if it's outdated.\n" +
+                "   - User asks: 'Who won the last AFCON?' You respond: `[search: who won the last Africa Cup of Nations]`\n" +
+                "   - User asks: 'What is the current dollar to naira rate?' You respond: `[search: current dollar to naira exchange rate]`\n" +
+                "   - User asks: 'What is today's date?' You respond: `[search: current date]`\n" +
+                "6.  **Using Search Results:** After you request a search, you will receive results prefixed with `[SEARCH_RESULTS]`. You MUST use this new information to answer the user's original question comprehensively."
             }]
         };
+
+
 
         const imageMarkdownRegex = /!\[Image for prompt: "([^"]+)"\]\(([^)]+)\)/;
         const historyContents = snaps.docs.map(d => {
@@ -1814,7 +2237,7 @@ async function sendMessage() {
             if (data.attachedFiles && Array.isArray(data.attachedFiles)) {
                 data.attachedFiles.forEach(file => {
                     const fileTypeLabel = file.type === 'application/pdf' ? 'PDF' : (file.type.startsWith('text/') ? 'TEXT FILE' : 'FILE');
-                    messageText += `\n\n--- ${fileTypeLabel}: ${file.name} ---\n${file.content}\n--- END ${fileTypeLabel} ---`;
+                    messageText += `\n\n--- ${fileTypeLabel}: ${file.name} ---\n${content}\n--- END ${fileTypeLabel} ---`;
                 });
             }
 
@@ -1845,10 +2268,8 @@ async function sendMessage() {
 }
 
 
-// --- handleImageGenerationWithCloudinary (UNCHANGED) ---
+// --- ✅ [MODIFIED] handleImageGenerationWithCloudinary ---
 async function handleImageGenerationWithCloudinary(prompt) {
-    const CLOUDINARY_CLOUD_NAME = "dvjs45kft";
-    const CLOUDINARY_UPLOAD_PRESET = "vevapvkv";
     let stabilityApiKey = '';
 
     try {
@@ -1898,7 +2319,11 @@ async function handleImageGenerationWithCloudinary(prompt) {
 
         const responseJSON = await response.json();
         const imageBase64 = responseJSON.artifacts[0].base64;
-
+        
+        // The generic uploader expects a File or Blob, not a base64 string.
+        // I'm keeping this specific fetch logic for base64 uploads.
+        const CLOUDINARY_CLOUD_NAME = "dvjs45kft";
+        const CLOUDINARY_UPLOAD_PRESET = "vevapvkv";
         const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
         const formData = new FormData();
         formData.append('file', `data:image/png;base64,${imageBase64}`);
@@ -1910,7 +2335,7 @@ async function handleImageGenerationWithCloudinary(prompt) {
         });
 
         if (!cloudinaryResponse.ok) {
-            throw new Error('Failed to upload the image.');
+            throw new Error('Failed to upload the generated image.');
         }
 
         const cloudinaryData = await cloudinaryResponse.json();
@@ -1922,9 +2347,10 @@ async function handleImageGenerationWithCloudinary(prompt) {
     }
 }
 
-// --- SESSION MANAGEMENT & EVENT LISTENERS (UNCHANGED) ---
+// --- SESSION MANAGEMENT & EVENT LISTENERS ---
 function startNewChat(){
   stopCurrentAudio();
+  exportedFileCache.clear();
   state.sessionId=crypto.randomUUID();
   localStorage.setItem('chatSessionId',state.sessionId);
   state.firstMessageSaved=false;
@@ -1934,6 +2360,7 @@ function startNewChat(){
 }
 function loadSessionById(id){
   stopCurrentAudio();
+  exportedFileCache.clear();
   state.sessionId=id;
   localStorage.setItem('chatSessionId',id);
   state.firstMessageSaved=true;
@@ -2037,7 +2464,7 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('beforeunload', () => { updateUserStatusInFirestore('Offline'); });
 
-// --- NEW USER TOUR LOGIC (UNCHANGED) ---
+// --- NEW USER TOUR LOGIC ---
 const tourManager = {
     steps: [
         {
@@ -2053,12 +2480,12 @@ const tourManager = {
         {
             element: '#composer-actions-btn',
             title: 'Personalities & Files',
-            text: 'Use this button to switch between different AI personalities or to upload a file for the AI to read.'
+            text: 'Use this button to switch between different chaka personalities or to upload a file for the chaka to read.'
         },
         {
             element: '#message-input',
             title: 'Start Talking!',
-            text: 'Type your message here and press the send button. That\'s it! Enjoy your chat.'
+            text: 'Type your message here and press the send button. That\'s it! Enjoy your chat with chaka 😌.'
         }
     ],
     currentStep: 0,
@@ -2163,7 +2590,7 @@ const tourManager = {
     }
 };
 
-// --- Function to check if the tour should be offered (UNCHANGED) ---
+// --- Function to check if the tour should be offered ---
 async function checkAndStartTour() {
     if (!state.userId) return;
     try {
@@ -2180,14 +2607,12 @@ async function checkAndStartTour() {
     }
 }
 
-// --- ✅ [NEW] SIGN OUT FUNCTION ---
+// --- SIGN OUT FUNCTION ---
 async function signOutUser() {
   if (!confirm('Are you sure you want to sign out?')) return;
   try {
     stopCurrentAudio();
     await signOut(auth);
-    // The onAuthStateChanged listener in init() will automatically handle
-    // clearing state and redirecting to the login page.
     console.log("User signed out successfully.");
   } catch (error) {
     console.error("Sign out error:", error);
@@ -2197,17 +2622,11 @@ async function signOutUser() {
 
 // --- ✅ [MODIFIED] INIT FUNCTION ---
 const init = () => {
-  // This listener is the new entry point of the app.
-  // It determines if a user is logged in before running any chat logic.
   onAuthStateChanged(auth, async (user) => {
     if (user) {
-      // --- USER IS AUTHENTICATED ---
-      DOMElements.body.style.opacity = 1; // Make the app visible
-
-      // Set the global userId from the authenticated user
+      DOMElements.body.style.opacity = 1;
       state.userId = user.uid;
 
-      // --- ALL ORIGINAL INITIALIZATION LOGIC NOW RUNS HERE ---
       state.sessionId = localStorage.getItem('chatSessionId') || null;
       state.selectedPersonalityId = localStorage.getItem('selectedPersonalityId') || null;
       applyTheme(state.currentTheme);
@@ -2224,7 +2643,7 @@ const init = () => {
 
       await ensureUser(user).catch(e => console.error('ensureUser failed', e));
       await checkAndStartTour();
-      initAnnouncementListener(); // ✨ [NEW] Start listening for announcements
+      initAnnouncementListener();
       subscribeSessions();
       
       if (state.sessionId) {
@@ -2235,37 +2654,147 @@ const init = () => {
       } else {
         startNewChat();
       }
-
-      // --- ALL ORIGINAL EVENT LISTENERS ARE ATTACHED HERE ---
-      DOMElements.menuBtn.addEventListener('click', () => {
-        DOMElements.sidebar.classList.toggle('open');
-        DOMElements.overlay.classList.toggle('show');
-      });
+      
+      // (also updated inside init function)
       DOMElements.overlay.addEventListener('click', () => {
           DOMElements.sidebar.classList.remove('open');
           DOMElements.composerActionsPopup.classList.remove('show');
           DOMElements.composerActionsBtn.classList.remove('active');
+          
+          // ✅ [NEW] Close user settings popup
+          DOMElements.userSettingsPopup.classList.remove('show');
+          DOMElements.userSettingsBtn.classList.remove('active');
+          
           DOMElements.overlay.classList.remove('show');
           DOMElements.welcomeTourModal.classList.add('hidden');
-          closeAnnouncementModals(); // ✨ [NEW] Also close announcement modals on overlay click
+          closeAnnouncementModals();
+          hideExportModal();
+          hideExportConfirmationModal(); 
+      }); 
+      // This is the end of the overlay listener
+      
+      // ✅ [FIX] I ADDED THIS BLOCK BACK for the mobile menu button
+      DOMElements.menuBtn.addEventListener('click', () => {
+        DOMElements.sidebar.classList.toggle('open');
+        DOMElements.overlay.classList.toggle('show');
+        
+        // Ensure popups are closed when opening sidebar
+        DOMElements.composerActionsPopup.classList.remove('show');
+        DOMElements.composerActionsBtn.classList.remove('active');
+        DOMElements.userSettingsPopup.classList.remove('show');
+        DOMElements.userSettingsBtn.classList.remove('active');
       });
-      const handleNewChat = () => {
-          startNewChat();
-          if (window.innerWidth<=900) {
-            DOMElements.sidebar.classList.remove('open');
-            DOMElements.overlay.classList.remove('show');
+      // --- END FIX ---
+
+      // ✅ [NEW] Event Listener for User Settings Popup
+      DOMElements.userSettingsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpening = !DOMElements.userSettingsBtn.classList.contains('active');
+        DOMElements.userSettingsPopup.classList.toggle('show', isOpening);
+        DOMElements.userSettingsBtn.classList.toggle('active', isOpening);
+        DOMElements.overlay.classList.toggle('show', isOpening);
+        
+        // Close composer popup if it's open
+        DOMElements.composerActionsPopup.classList.remove('show');
+        DOMElements.composerActionsBtn.classList.remove('active');
+      });
+
+      
+      // THIS IS MY NEW CORRECTED BLOCK
+  const handleNewChat = () => {
+      startNewChat();
+      if (window.innerWidth <= 900) {
+          DOMElements.sidebar.classList.remove('open');
+          DOMElements.overlay.classList.remove('show');
+      }
+  };
+  DOMElements.newChatSidebarBtn.addEventListener('click', handleNewChat);
+  DOMElements.clearHistoryBtn.addEventListener('click', clearHistory);
+  DOMElements.signOutBtn.addEventListener('click', signOutUser);
+
+  const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+
+DOMElements.messageInput.addEventListener('keydown', (e) => {
+  if (!isMobile) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      DOMElements.sendBtn.click();
+    }
+  }
+});
+
+     
+      // ✅ [MODIFIED] Use event delegation for dynamic export links with status handling
+      DOMElements.chatMessages.addEventListener('click', async (e) => {
+          const pdfLink = e.target.closest('a[data-export-pdf-id]');
+          if (!pdfLink) return;
+
+          e.preventDefault();
+          const messageId = pdfLink.getAttribute('data-export-pdf-id');
+          const currentStatus = pdfLink.dataset.status;
+
+          if (currentStatus === 'processing') {
+              return; // Ignore clicks while processing
           }
-      };
-      DOMElements.newChatSidebarBtn.addEventListener('click', handleNewChat);
-      DOMElements.clearHistoryBtn.addEventListener('click', clearHistory);
-      DOMElements.signOutBtn.addEventListener('click', signOutUser); // Attach sign out
-      DOMElements.messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); DOMElements.sendBtn.click(); } });
+
+          // If already completed, just open the cached version.
+          if (exportedFileCache.has(messageId)) {
+              window.open(exportedFileCache.get(messageId), '_blank');
+              return;
+          }
+
+          // Set processing state (for initial click or retry)
+          pdfLink.dataset.status = 'processing';
+          pdfLink.innerHTML = `${PDF_LINK_LOADER_ICON} Generating...`;
+          
+          const messageElement = pdfLink.closest('.message[data-message-id]')?.querySelector('.message-content');
+          
+          if (messageElement) {
+              try {
+                  showToastNotification({
+                      message: "PDF generation is in progress. You'll be notified when it is complete.",
+                      icon: LOADER_SVG_ICON,
+                      duration: 8000
+                  });
+
+                  const fileUrl = await exportAsPdf(messageElement, messageId);
+                  
+                  pdfLink.dataset.status = 'completed';
+                  pdfLink.innerHTML = `${PDF_LINK_SUCCESS_ICON} Open PDF`;
+                  pdfLink.href = fileUrl;
+                  pdfLink.target = '_blank';
+
+                  showExportConfirmationModal('PDF', fileUrl);
+
+              } catch (error) {
+                  console.error("PDF generation from link failed:", error);
+                  pdfLink.dataset.status = 'failed';
+                  pdfLink.innerHTML = `${PDF_LINK_ERROR_ICON} Retry Generation`;
+
+                  showToastNotification({
+                      message: `Sorry, could not create the PDF. Error: ${error.message || 'Unknown reason.'}`,
+                      type: 'error',
+                      duration: 10000
+                  });
+              }
+          } else {
+              pdfLink.dataset.status = 'failed';
+              pdfLink.innerHTML = `${PDF_LINK_ERROR_ICON} Error`;
+              showToastNotification({
+                  message: "Could not find the original message to export.",
+                  type: 'error'
+              });
+          }
+      });
+      
       DOMElements.chatMessages.addEventListener('scroll', () => {
         const isScrolledUp = DOMElements.chatMessages.scrollHeight - DOMElements.chatMessages.scrollTop - DOMElements.chatMessages.clientHeight > 200;
         DOMElements.scrollToBottomBtn.classList.toggle('visible', isScrolledUp);
       });
       DOMElements.scrollToBottomBtn.addEventListener('click', () => scrollToBottom('smooth'));
       const composerObserver = new ResizeObserver(entries => { document.documentElement.style.setProperty('--composer-height', `${entries[0].target.offsetHeight}px`); });
+      
+      // (updated inside init function)
       composerObserver.observe(DOMElements.composer);
       DOMElements.composerActionsBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -2273,15 +2802,15 @@ const init = () => {
           DOMElements.composerActionsPopup.classList.toggle('show', isOpening);
           DOMElements.composerActionsBtn.classList.toggle('active', isOpening);
           DOMElements.overlay.classList.toggle('show', isOpening);
+
+          // ✅ [NEW] Close user settings popup
+          DOMElements.userSettingsPopup.classList.remove('show');
+          DOMElements.userSettingsBtn.classList.remove('active');
       });
 
-      // ✨ [NEW] Event Listeners for Announcement Modals
-      if (DOMElements.announcementCloseBtn) {
-          DOMElements.announcementCloseBtn.addEventListener('click', closeAnnouncementModals);
-      }
-      if (DOMElements.announcementDetailsCloseBtn) {
-          DOMElements.announcementDetailsCloseBtn.addEventListener('click', closeAnnouncementModals);
-      }
+
+      if (DOMElements.announcementCloseBtn) DOMElements.announcementCloseBtn.addEventListener('click', closeAnnouncementModals);
+      if (DOMElements.announcementDetailsCloseBtn) DOMElements.announcementDetailsCloseBtn.addEventListener('click', closeAnnouncementModals);
       if (DOMElements.announcementReadMoreBtn) {
           DOMElements.announcementReadMoreBtn.addEventListener('click', () => {
               if (state.currentAnnouncement) {
@@ -2290,9 +2819,57 @@ const init = () => {
           });
       }
 
+      // ✅ [MODIFIED] Handle manual exports differently for PDF vs. TXT
+      const handleManualExport = async (exportFn) => {
+          hideExportModal(); // Hide selection modal first
+          const element = state.elementToExport;
+          const messageId = state.messageIdToExport;
+
+          if (exportFn === exportAsPdf) {
+              showToastNotification({
+                  message: "PDF generation is in progress...",
+                  icon: LOADER_SVG_ICON,
+                  duration: 8000
+              });
+              try {
+                  const url = await exportAsPdf(element, messageId);
+                  showExportConfirmationModal('PDF', url);
+              } catch (error) {
+                  showToastNotification({
+                      message: "Sorry, there was an error creating the PDF.",
+                      type: 'error',
+                      duration: 10000
+                  });
+              }
+          } else {
+              // For TXT, keep the fast, blocking behavior
+              const url = await exportFn(element, true);
+              if (url) {
+                  showExportConfirmationModal('TXT', url);
+              }
+          }
+      };
+
+      if(DOMElements.exportPdfBtn) DOMElements.exportPdfBtn.addEventListener('click', () => handleManualExport(exportAsPdf));
+      if(DOMElements.exportTxtBtn) DOMElements.exportTxtBtn.addEventListener('click', () => handleManualExport(exportAsTxt));
+      if(DOMElements.exportCloseBtn) DOMElements.exportCloseBtn.addEventListener('click', hideExportModal);
+
+      if(DOMElements.viewExportedFileBtn) {
+          DOMElements.viewExportedFileBtn.addEventListener('click', () => {
+              if (state.lastExportedFile && state.lastExportedFile.url) {
+                  window.open(state.lastExportedFile.url, '_blank');
+              }
+              hideExportConfirmationModal();
+          });
+      }
+       if(DOMElements.exportConfirmationContinueBtn) {
+         DOMElements.exportConfirmationContinueBtn.addEventListener('click', hideExportConfirmationModal);
+       }
+
       const fileUploadInput = document.getElementById('file-upload');
       const filePreviewContainer = document.getElementById('file-preview-container');
       
+      // ✅ [MODIFIED] uploadAndProcessFile to use the generic uploader
       async function uploadAndProcessFile(fileId, file) {
           const fileObject = selectedFiles.find(f => f.id === fileId);
           if (!fileObject) return;
@@ -2302,7 +2879,8 @@ const init = () => {
               updateFilePreviewStatus(fileId, 'uploading');
               checkSendButtonState();
               
-              const url = await uploadFileToCloudinary(file);
+              // Specify 'image' as the resource type for user-uploaded images
+              const url = await uploadFileToCloudinary(file, 'image');
               
               fileObject.status = 'completed';
               fileObject.url = url;
@@ -2396,13 +2974,9 @@ const init = () => {
       });
 
     } else {
-      // --- USER IS NOT AUTHENTICATED ---
-      // Clear any sensitive local storage that depends on the user
       localStorage.removeItem('chatSessionId');
       localStorage.removeItem('selectedPersonalityId');
-      
-      // Redirect to the login page
-      window.location.replace('auth.html');
+      window.location.replace('auth3.html');
     }
   });
 };
