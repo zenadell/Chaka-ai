@@ -1767,7 +1767,7 @@ function stopApiRequestLoop() {
 
 // --- makeApiRequest ---
 async function makeApiRequest(requestBody, apiKey, abortSignal) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
